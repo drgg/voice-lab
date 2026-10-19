@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>实时替换模拟</title>
+<style>
+  :root { --bg:#fafaf9; --fg:#1c1917; --muted:#78716c; --line:#e7e5e4; --card:#fff; --accent:#2563eb; --on:#15803d; --onbg:#f0fdf4; --warn:#b45309; --bad:#b91c1c; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#1c1917; --fg:#f5f5f4; --muted:#a8a29e; --line:#44403c; --card:#292524; --accent:#60a5fa; --on:#4ade80; --onbg:#14281b; --warn:#fbbf24; --bad:#f87171; } }
+  :root[data-theme="dark"] { --bg:#1c1917; --fg:#f5f5f4; --muted:#a8a29e; --line:#44403c; --card:#292524; --accent:#60a5fa; --on:#4ade80; --onbg:#14281b; --warn:#fbbf24; --bad:#f87171; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, "Microsoft YaHei", sans-serif; }
+  header { position:sticky; top:0; z-index:2; background:var(--bg); border-bottom:1px solid var(--line); padding:12px 16px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  h2 { font-size:16px; margin:20px 0 6px; }
+  .hint { color:var(--muted); font-size:13px; margin:0 0 10px; max-width:960px; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  button { font:inherit; padding:6px 12px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); cursor:pointer; }
+  button.on { background:var(--onbg); border-color:var(--on); color:var(--on); font-weight:600; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  input[type=range] { flex:1 1 300px; min-width:200px; }
+  .time { font-variant-numeric:tabular-nums; color:var(--muted); min-width:110px; }
+  main { padding:8px 16px 60px; max-width:1040px; margin:0 auto; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  td.num { font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .wrap { overflow-x:auto; }
+  .ok { color:var(--on); } .late { color:var(--warn); } .bad { color:var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">实时替换模拟</h1>
+  <p class="hint">假设整个游戏声音延迟 L 毫秒再输出，系统只能"提前听" L 毫秒来决定替换哪一句。各条音轨已经对齐到录音时间，方便同步比较：<b>原录音</b> / <b>离线版</b>（看完整段再处理，作为标准）/ 各个 L 的实时效果。迟到的句子，开头一段仍是原声，之后才切换成 __VOICE__。</p>
+  <div class="bar" id="tracks">
+    <button class="primary" id="play">播放</button>
+  </div>
+  <div class="bar" style="margin-top:8px">
+    <input type="range" id="seek" min="0" max="1000" value="0">
+    <span class="time" id="time">0:00 / 0:00</span>
+  </div>
+</header>
+<main>
+<h2>各延迟下的结果</h2>
+<div class="wrap"><table id="sum"><thead><tr><th>延迟 L</th><th>从头换上</th><th>迟到换上</th><th>漏掉</th><th>错换</th></tr></thead><tbody></tbody></table></div>
+<h2>逐句明细 <select id="pick"></select></h2>
+<p class="hint">"判定用时"指从这句开始到确认它是哪一句所需的时间（含 20 ms 处理）。"超时播放"指这句已经停了，但系统还没发现，__VOICE__ 继续多播的时长。</p>
+<div class="wrap"><table id="ev"><thead><tr><th>时间</th><th>台词</th><th>编号</th><th>结果</th><th>判定用时</th><th>迟到</th><th>超时播放</th></tr></thead><tbody></tbody></table></div>
+</main>
+<script>
+const D = __DATA__;
+const $ = (s) => document.querySelector(s);
+$('#title').textContent = `实时替换模拟 · ${D.name} · 识别用${D.signal === 'mix' ? '混音（实时可得）' : '分离后的人声轨（乐观上限）'}`;
+const srcs = [['game', '原录音', D.game], ['offline', '离线版', D.offline]];
+for (const [L, v] of Object.entries(D.Ls)) srcs.push([`L${L}`, `L=${L} ms`, v.wav]);
+const tracks = {}; let cur = 'offline';
+for (const [k, label, url] of srcs) {
+  const a = new Audio(url); a.preload = 'auto'; tracks[k] = a;
+  const b = document.createElement('button'); b.textContent = label; b.dataset.t = k; b.onclick = () => setTrack(k);
+  $('#tracks').appendChild(b);
+}
+const master = () => tracks[cur];
+function setTrack(k) {
+  const t = master().currentTime, playing = !master().paused;
+  cur = k;
+  for (const [n, a] of Object.entries(tracks)) { a.muted = n !== k; if (Math.abs(a.currentTime - t) > 0.03) a.currentTime = t; }
+  document.querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === k));
+  if (playing) Object.values(tracks).forEach(a => a.play());
+}
+function seekTo(t) { Object.values(tracks).forEach(a => { a.currentTime = Math.max(0, t); }); }
+$('#play').onclick = () => {
+  if (master().paused) { seekTo(master().currentTime); Object.values(tracks).forEach(a => a.play()); $('#play').textContent = '暂停'; }
+  else { Object.values(tracks).forEach(a => a.pause()); $('#play').textContent = '播放'; }
+};
+const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+setInterval(() => {
+  const a = master(); if (!a.duration) return;
+  $('#seek').value = Math.round(a.currentTime / a.duration * 1000);
+  $('#time').textContent = `${fmt(a.currentTime)} / ${fmt(a.duration)}`;
+  for (const o of Object.values(tracks)) if (o !== a && Math.abs(o.currentTime - a.currentTime) > 0.05) o.currentTime = a.currentTime;
+}, 250);
+$('#seek').oninput = () => { const a = master(); if (a.duration) seekTo($('#seek').value / 1000 * a.duration); };
+const sb = $('#sum tbody');
+for (const [L, v] of Object.entries(D.Ls)) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td class="num">${L} ms</td><td class="num ok">${v.on_time} / ${v.n}</td><td class="num late">${v.late}</td><td class="num">${v.missed}</td><td class="num bad">${v.wrong}</td>`;
+  sb.appendChild(tr);
+  const o = document.createElement('option'); o.value = L; o.textContent = `L=${L} ms`; $('#pick').appendChild(o);
+}
+const label = { correct: '正确', wrong: '错换', missed: '漏掉' };
+function rows() {
+  const L = $('#pick').value, tb = $('#ev tbody'); tb.innerHTML = '';
+  D.rows.filter(r => String(r.L) === L && (r.replaced || r.result === 'wrong')).forEach(r => {
+    const tr = document.createElement('tr');
+    const cls = r.result === 'correct' ? (r.late_ms > 0 ? 'late' : 'ok') : 'bad';
+    const res = r.result === 'correct' && r.late_ms > 0 ? '迟到' : label[r.result];
+    tr.innerHTML = `<td class="num"><button>${fmt(r.time)}.${String(Math.floor((r.time % 1) * 10))}</button></td><td class="t"></td><td>${r.id}</td>
+      <td class="${cls}">${res}${r.replaced ? '' : '（保留原声，无影响）'}</td><td class="num">${r.decided_ms === '' ? '—' : r.decided_ms + ' ms'}</td>
+      <td class="num">${r.late_ms ? r.late_ms + ' ms' : '—'}</td><td class="num">${r.overrun_ms ? r.overrun_ms + ' ms' : '—'}</td>`;
+    tr.querySelector('.t').textContent = `「${r.text.length > 30 ? r.text.slice(0, 30) + '…' : r.text}」`;
+    tr.querySelector('button').onclick = () => { seekTo(r.time - 1); if (master().paused) $('#play').click(); };
+    tb.appendChild(tr);
+  });
+}
+$('#pick').onchange = rows; rows();
+setTrack('offline');
+</script>
+</body>
+</html>

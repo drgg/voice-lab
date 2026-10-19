@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>拟声词统一检查</title>
+<style>
+  :root { --bg:#fafaf9; --fg:#1c1917; --muted:#78716c; --line:#e7e5e4; --card:#fff; --accent:#2563eb; --hy:#be185d; --pick:#15803d; --pickbg:#f0fdf4; --warn:#b45309; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#1c1917; --fg:#f5f5f4; --muted:#a8a29e; --line:#44403c; --card:#292524; --accent:#60a5fa; --hy:#f472b6; --pick:#4ade80; --pickbg:#14281b; --warn:#fbbf24; } }
+  :root[data-theme="dark"] { --bg:#1c1917; --fg:#f5f5f4; --muted:#a8a29e; --line:#44403c; --card:#292524; --accent:#60a5fa; --hy:#f472b6; --pick:#4ade80; --pickbg:#14281b; --warn:#fbbf24; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, "Microsoft YaHei", sans-serif; }
+  header { position:sticky; top:0; z-index:2; background:var(--bg); border-bottom:1px solid var(--line); padding:12px 16px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .hint { color:var(--muted); font-size:13px; margin:0 0 8px; max-width:960px; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; font-size:14px; }
+  select, button { font:inherit; padding:5px 10px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); cursor:pointer; }
+  button { cursor:pointer; }
+  code { display:inline-block; max-width:100%; overflow-wrap:anywhere; background:var(--card); border:1px solid var(--line); border-radius:6px; padding:4px 8px; font-size:13px; }
+  main { padding:8px 16px 60px; max-width:1100px; margin:0 auto; }
+  .row { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:10px 0; }
+  .row.over { border-color:var(--accent); }
+  .head { display:flex; flex-wrap:wrap; gap:4px 12px; align-items:baseline; margin-bottom:6px; }
+  .head b { font-size:15px; }
+  .muted { color:var(--muted); font-size:12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:8px; }
+  .opt { border:1px solid var(--line); border-radius:8px; padding:6px 8px; display:flex; flex-direction:column; gap:4px; cursor:pointer; }
+  .opt.on { background:var(--pickbg); border-color:var(--pick); }
+  .opt.orig { cursor:default; border-style:dashed; }
+  .opt .lab { font-size:13px; font-weight:600; display:flex; gap:6px; align-items:center; }
+  .opt .lab.hy { color:var(--hy); }
+  .issue { font-size:11px; color:var(--warn); min-height:14px; }
+  audio { width:100%; height:30px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title"></h1>
+  <p class="hint">每句先听<b>「原声」</b>，再听各个候选。先在上面选一个<b>全部默认</b>的版本，再逐句改掉不满意的（改过的句子框会变蓝）。候选下方的黄色小字是自动检查发现的问题，仅供参考。听完点<b>「…」</b>发给 Claude。选择会自动保存在本浏览器。</p>
+  <div class="bar">
+    <label>全部默认：<select id="def"></select></label>
+    <label><input type="checkbox" id="onlyIssues"> 只看默认版本有问题的句子</label>
+    <span id="stat" class="muted"></span>
+    <code id="code"></code>
+    <button class="primary" id="copy">复制选择码</button>
+  </div>
+</header>
+<main id="list"></main>
+<script>
+const D = __DATA__;
+const KEY = 'vl_choose_' + D.set + '_' + location.pathname;
+const label = Object.fromEntries(D.groups.map(g => [g.key, g.label]));
+let st = { def: D.default, over: {} };
+try { st = Object.assign(st, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
+const $ = (s) => document.querySelector(s);
+document.title = D.title; $('#title').textContent = `${D.title} · ${D.lines.length} 句`;
+
+const sel = $('#def');
+[{ key: 'auto', label: '自动（每句取第一个没查出问题的版本）' }, ...D.groups].forEach(g => {
+  const o = document.createElement('option'); o.value = g.key; o.textContent = g.label; sel.appendChild(o);
+});
+sel.value = st.def;
+sel.onchange = () => { st.def = sel.value; save(); render(); };
+$('#onlyIssues').onchange = render;
+
+function defaultOf(ln) {  // what the global default means for this line
+  const has = (k) => ln.cands.some(c => c.key === k);
+  if (st.def === 'auto') return ln.auto;
+  return has(st.def) ? st.def : (ln.cands[0] || {}).key;
+}
+function pickOf(ln) {
+  const o = st.over[ln.id];
+  return o && ln.cands.some(c => c.key === o) ? o : defaultOf(ln);
+}
+function overridden(ln) { return st.over[ln.id] && st.over[ln.id] !== defaultOf(ln); }
+function code() {
+  const over = D.lines.filter(overridden).map(ln => `${ln.id}=${st.over[ln.id]}`);
+  return `default=${st.def}` + (over.length ? ';' + over.join(',') : '');
+}
+function render() {
+  const list = $('#list'); list.innerHTML = '';
+  const only = $('#onlyIssues').checked;
+  let shown = 0;
+  D.lines.forEach(ln => {
+    const p = pickOf(ln);
+    const defCand = ln.cands.find(c => c.key === defaultOf(ln));
+    if (only && !(defCand && defCand.issues)) return;
+    shown++;
+    const row = document.createElement('section');
+    row.className = 'row' + (overridden(ln) ? ' over' : '');
+    row.innerHTML = `<div class="head"><b>${ln.id}</b><span class="t"></span><span class="muted">${ln.src_wav}</span></div>
+      <div class="grid"><div class="opt orig"><span class="lab hy">原声</span><audio controls preload="none" src="${ln.orig}"></audio><span class="issue"></span></div></div>`;
+    row.querySelector('.t').textContent = `「${ln.text}」`;
+    const grid = row.querySelector('.grid');
+    ln.cands.forEach(c => {
+      const el = document.createElement('label');
+      el.className = 'opt' + (c.key === p ? ' on' : '');
+      el.innerHTML = `<span class="lab"><input type="radio" name="${ln.id}" value="${c.key}" ${c.key === p ? 'checked' : ''}><span></span></span>
+        <audio controls preload="none" src="${c.src}"></audio><span class="issue"></span>`;
+      el.querySelector('.lab span').textContent = (label[c.key] || c.key) + (st.def === 'auto' && c.key === ln.auto ? '（自动）' : '');
+      el.querySelector('.issue').textContent = c.issues;
+      el.querySelector('input').onchange = () => {
+        if (c.key === defaultOf(ln)) delete st.over[ln.id]; else st.over[ln.id] = c.key;
+        save(); render();
+      };
+      grid.appendChild(el);
+    });
+    list.appendChild(row);
+  });
+  const n = D.lines.filter(overridden).length;
+  $('#stat').textContent = `显示 ${shown} 句，单独改过 ${n} 句`;
+  $('#code').textContent = code();
+}
+// one clip at a time
+document.addEventListener('play', (e) => { document.querySelectorAll('audio').forEach(a => { if (a !== e.target) a.pause(); }); }, true);
+$('#copy').onclick = async () => {
+  try { await navigator.clipboard.writeText(code()); $('#copy').textContent = '已复制'; }
+  catch (e) { $('#copy').textContent = '请手动复制左侧代码'; }
+  setTimeout(() => { $('#copy').textContent = '复制选择码'; }, 1500);
+};
+render();
+</script>
+</body>
+</html>

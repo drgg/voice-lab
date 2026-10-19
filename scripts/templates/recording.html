@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>录屏语音替换</title>
+<style>
+  :root { --bg:#fafaf9; --fg:#1c1917; --muted:#78716c; --line:#e7e5e4; --card:#fff; --accent:#2563eb; --on:#15803d; --onbg:#f0fdf4; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#1c1917; --fg:#f5f5f4; --muted:#a8a29e; --line:#44403c; --card:#292524; --accent:#60a5fa; --on:#4ade80; --onbg:#14281b; } }
+  :root[data-theme="dark"] { --bg:#1c1917; --fg:#f5f5f4; --muted:#a8a29e; --line:#44403c; --card:#292524; --accent:#60a5fa; --on:#4ade80; --onbg:#14281b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, "Microsoft YaHei", sans-serif; }
+  header { position:sticky; top:0; z-index:2; background:var(--bg); border-bottom:1px solid var(--line); padding:12px 16px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .hint { color:var(--muted); font-size:13px; margin:0 0 10px; max-width:900px; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  button { font:inherit; padding:6px 12px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); cursor:pointer; }
+  button.on { background:var(--onbg); border-color:var(--on); color:var(--on); font-weight:600; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  input[type=range] { flex:1 1 300px; min-width:200px; }
+  .time { font-variant-numeric:tabular-nums; color:var(--muted); min-width:110px; }
+  main { padding:8px 16px 60px; max-width:1000px; margin:0 auto; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  td.num { font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .wrap { overflow-x:auto; }
+  h2 { font-size:16px; margin:20px 0 4px; }
+  .weak { color:#b45309; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">录屏语音替换</h1>
+  <p class="hint">三条音轨同步播放，用下面的按钮随时切换：<b>原录音</b> / <b>去掉__CHAR__原声</b>（检查原声消得干不干净）/ <b>替换为 __VOICE__</b>。点表中的时间可以跳到那句台词前 1 秒。<span id="cap"></span></p>
+  <div class="bar">
+    <button class="primary" id="play">播放</button>
+    <button data-t="game">原录音</button>
+    <button data-t="removed">去掉原声</button>
+    <button data-t="replaced">替换为 __VOICE__</button>
+    <input type="range" id="seek" min="0" max="1000" value="0">
+    <span class="time" id="time">0:00 / 0:00</span>
+  </div>
+</header>
+<main>
+<h2>替换的台词</h2>
+<p class="hint"><b>可信度</b>：在人声轨上，原台词能解释多少能量；括号里是对照组（同一句倒放）的值。真正播放的那一条通常比对照组高 3 dB 以上。<b>人声/混音</b>：她的声音比周围（音效、音乐）低多少。<b>原声消除</b>：她所在频点的人声能量下降多少。</p>
+<div class="wrap"><table id="ev"><thead><tr><th>时间</th><th>台词</th><th>编号</th><th>可信度</th><th>人声/混音</th><th>原声消除</th><th>替换版本</th></tr></thead><tbody></tbody></table></div>
+<h2>没有被任何台词解释的人声</h2>
+<p class="hint">人声轨上剩下的说话声：可能是队友、敌人或旁白，也可能是导出文件里没有的__CHAR__台词。"像__CHAR__"是声纹相似度，战斗中并不可靠，只作提示，请以听为准。</p>
+<div class="wrap"><table id="un"><thead><tr><th>时间</th><th>时长</th><th>像__CHAR__</th></tr></thead><tbody></tbody></table></div>
+</main>
+<script>
+const D = __DATA__;
+document.getElementById('title').textContent = `录屏语音替换 · ${D.name} · 替换 ${D.events.length} 句`;
+const tracks = {}; let cur = 'replaced';
+for (const k of ['game', 'removed', 'replaced']) { const a = new Audio(D[k]); a.preload = 'auto'; tracks[k] = a; }
+const $ = (s) => document.querySelector(s);
+const master = () => tracks[cur];
+function setTrack(k) {
+  const t = master().currentTime, playing = !master().paused;
+  cur = k;
+  for (const [n, a] of Object.entries(tracks)) { a.muted = n !== k; if (Math.abs(a.currentTime - t) > 0.03) a.currentTime = t; }
+  document.querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === k));
+  if (playing) Object.values(tracks).forEach(a => a.play());
+}
+function seekTo(t) { Object.values(tracks).forEach(a => { a.currentTime = Math.max(0, t); }); }
+$('#play').onclick = () => {
+  if (master().paused) { seekTo(master().currentTime); Object.values(tracks).forEach(a => a.play()); $('#play').textContent = '暂停'; }
+  else { Object.values(tracks).forEach(a => a.pause()); $('#play').textContent = '播放'; }
+};
+document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => setTrack(b.dataset.t));
+const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+setInterval(() => {
+  const a = master(); if (!a.duration) return;
+  $('#seek').value = Math.round(a.currentTime / a.duration * 1000);
+  $('#time').textContent = `${fmt(a.currentTime)} / ${fmt(a.duration)}`;
+  for (const o of Object.values(tracks)) if (o !== a && Math.abs(o.currentTime - a.currentTime) > 0.05) o.currentTime = a.currentTime;
+}, 250);
+$('#seek').oninput = () => { const a = master(); if (a.duration) seekTo($('#seek').value / 1000 * a.duration); };
+const C = D.capture || {};
+document.getElementById('cap').textContent = C.doubled
+  ? `注意：这段录音里每个声音都录了两遍（相差 ${C.delay_ms} ms，多半是 OBS 同时录了"桌面音频"和窗口音频），已自动还原成一份再处理。`
+  : '录音检查：声音只录了一份，正常。';
+const jump = (t) => { seekTo(t - 1); if (master().paused) $('#play').click(); };
+const stamp = (t) => `${fmt(t)}.${String(Math.floor((t % 1) * 10))}`;
+const tb = document.querySelector('#ev tbody');
+D.events.forEach(e => {
+  const tr = document.createElement('tr');
+  const weak = e.explained_db - e.null_db < 4 ? ' weak' : '';
+  tr.innerHTML = `<td class="num"><button>${stamp(e.time)}</button></td><td class="t"></td><td>${e.id}</td>
+    <td class="num${weak}">${e.explained_db} dB (${e.null_db})</td><td class="num">${e.voice_vs_mix_db} dB</td>
+    <td class="num">${e.voice_drop_db === '' ? '—' : e.voice_drop_db + ' dB'}</td><td class="v"></td>`;
+  tr.querySelector('.t').textContent = `「${e.text}」`;
+  tr.querySelector('.v').textContent = e.version + (e.cut ? ` · 播放 ${e.played_s} 秒后被打断，替换版本同样截断` : '');
+  tr.querySelector('button').onclick = () => jump(e.time);
+  tb.appendChild(tr);
+});
+const ub = document.querySelector('#un tbody');
+(D.uncovered || []).forEach(u => {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td class="num"><button>${stamp(u.time)}</button></td><td class="num">${u.dur} s</td><td class="num">${u.similarity}</td>`;
+  tr.querySelector('button').onclick = () => jump(u.time);
+  ub.appendChild(tr);
+});
+setTrack('replaced');
+</script>
+</body>
+</html>

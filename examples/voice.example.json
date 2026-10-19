@@ -1,0 +1,13 @@
+{
+  "label": "角色B",
+  "keyword": "<只有 B 会说的口癖，正则>",
+  "own_markers": "<B 的说话习惯，正则，例如第一人称和对某人的称呼>",
+  "other_markers": "<其他角色的说话习惯，正则：别人对 B 的称呼、其他角色的口癖、男性第一人称等>",
+  "anchor_match": "<可选：只在哪些剧集里口癖专属于 B，匹配片段 id 的正则>",
+  "exclude_sources": "Recap|总集篇",
+  "min_f0": 180,
+  "nonverbal_pitch": 2,
+  "vad_min_silence_ms": 150,
+  "vad_max_speech_s": 8,
+  "rvc_model": "myvoice_v1"
+}

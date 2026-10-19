@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>单句精修</title>
+<style>
+  :root { --bg:#fafaf9; --fg:#1c1917; --muted:#78716c; --line:#e7e5e4; --card:#fff; --accent:#2563eb; --hy:#be185d; --pick:#15803d; --pickbg:#f0fdf4; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#1c1917; --fg:#f5f5f4; --muted:#a8a29e; --line:#44403c; --card:#292524; --accent:#60a5fa; --hy:#f472b6; --pick:#4ade80; --pickbg:#14281b; } }
+  :root[data-theme="dark"] { --bg:#1c1917; --fg:#f5f5f4; --muted:#a8a29e; --line:#44403c; --card:#292524; --accent:#60a5fa; --hy:#f472b6; --pick:#4ade80; --pickbg:#14281b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, "Microsoft YaHei", sans-serif; }
+  header { position:sticky; top:0; z-index:2; background:var(--bg); border-bottom:1px solid var(--line); padding:12px 16px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .hint { color:var(--muted); font-size:13px; margin:0 0 8px; max-width:900px; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  button { padding:6px 12px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); cursor:pointer; font:inherit; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  code { background:var(--card); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font-size:14px; }
+  main { padding:12px 16px 60px; max-width:980px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; margin:14px 0; }
+  .ptitle { display:flex; justify-content:space-between; gap:8px; align-items:baseline; flex-wrap:wrap; }
+  .ptitle b { font-size:16px; }
+  .orig label { font-size:12px; font-weight:600; color:var(--hy); }
+  audio { width:100%; height:32px; }
+  .take { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; align-items:center; border-top:1px dashed var(--line); padding:8px 6px; border-radius:6px; }
+  .take.on { background:var(--pickbg); outline:1px solid var(--pick); }
+  .take input { width:18px; height:18px; }
+  .meta { font-size:13px; }
+  .meta .lab { font-weight:600; }
+  .meta .num { color:var(--muted); }
+  .take audio { grid-column:2; }
+  .tag { font-size:11px; color:var(--pick); border:1px solid var(--pick); border-radius:4px; padding:0 4px; margin-left:4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">单句精修</h1>
+  <p class="hint">每个短句先听<b>「原声」</b>，再从候选里选一个最像 __VOICE__、情感最对的版本（默认选中自动评分最高的那个，标着「自动」）。点<b>「播放组合」</b>按原句的停顿节奏把选中的短句连起来试听。满意后点<b>「复制选择」</b>，把选择码发给 Claude 生成正式版本。</p>
+  <div class="bar">
+    <button id="playOrig">播放原句</button>
+    <button class="primary" id="playMix">播放组合</button>
+    <button id="stop">停止</button>
+    <button id="playAuto">播放自动组合</button>
+    <code id="code"></code>
+    <button id="copy">复制选择</button>
+  </div>
+</header>
+<main id="list"></main>
+<script>
+const D = __DATA__;
+const KEY = 'vl_refine_' + D.line;
+let pick = {};
+try { pick = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { pick = {}; }
+D.phrases.forEach(p => { if (!pick[p.idx] || !p.cands.some(c => c.key === pick[p.idx])) pick[p.idx] = p.auto; });
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(pick)); } catch (e) {} };
+const $ = (s) => document.querySelector(s);
+document.getElementById('title').textContent = `单句精修 · ${D.line} · ${D.text}`;
+
+function code() { return D.line + ': ' + D.phrases.map(p => `${p.idx}=${pick[p.idx]}`).join(','); }
+function render() {
+  const list = $('#list'); list.innerHTML = '';
+  D.phrases.forEach(p => {
+    const card = document.createElement('section'); card.className = 'card';
+    let h = `<div class="ptitle"><b>短句 ${p.idx}：<span class="ptext"></span></b><span class="num">原句第 ${p.start.toFixed(2)} 秒开始</span></div>
+      <div class="orig"><label>原声</label><audio controls preload="none" src="${p.orig}"></audio></div>`;
+    p.cands.forEach(c => {
+      h += `<label class="take${pick[p.idx] === c.key ? ' on' : ''}" data-key="${c.key}">
+        <input type="radio" name="p${p.idx}" value="${c.key}" ${pick[p.idx] === c.key ? 'checked' : ''}>
+        <span class="meta"><span class="lab"></span>${c.key === p.auto ? '<span class="tag">自动</span>' : ''}
+          <span class="num"> · ${c.key} · 语调还原 ${c.corr.toFixed(2)} · 识别为「<span class="asr"></span>」</span></span>
+        <audio controls preload="none" src="${c.src}"></audio></label>`;
+    });
+    card.innerHTML = h;
+    card.querySelector('.ptext').textContent = p.text;
+    card.querySelectorAll('.take').forEach((el, i) => {
+      el.querySelector('.lab').textContent = p.cands[i].label;
+      el.querySelector('.asr').textContent = p.cands[i].asr;
+    });
+    card.querySelectorAll('input').forEach(inp => inp.onchange = () => {
+      pick[p.idx] = inp.value; save();
+      card.querySelectorAll('.take').forEach(el => el.classList.toggle('on', el.dataset.key === inp.value));
+      $('#code').textContent = code();
+    });
+    list.appendChild(card);
+  });
+  $('#code').textContent = code();
+}
+
+let ctx = null, playing = [];
+const cache = {};
+async function buffer(src) {
+  if (!cache[src]) cache[src] = fetch(src).then(r => r.arrayBuffer()).then(b => ctx.decodeAudioData(b));
+  return cache[src];
+}
+function stop() { playing.forEach(s => { try { s.stop(); } catch (e) {} }); playing = []; document.querySelectorAll('audio').forEach(a => a.pause()); }
+async function playList(items) {
+  stop();
+  ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+  const bufs = await Promise.all(items.map(it => buffer(it.src)));
+  const t0 = ctx.currentTime + 0.1;
+  let prevEnd = 0;
+  bufs.forEach((b, i) => {
+    const start = items[i].start === undefined ? 0 : Math.max(items[i].start, prevEnd + 0.06); // same rule as select_phrases.place
+    const s = ctx.createBufferSource(); s.buffer = b; s.connect(ctx.destination); s.start(t0 + start);
+    prevEnd = start + b.duration; playing.push(s);
+  });
+}
+$('#playMix').onclick = () => playList(D.phrases.map(p => ({ src: p.cands.find(c => c.key === pick[p.idx]).src, start: p.start })));
+$('#playOrig').onclick = () => playList([{ src: D.orig }]);
+$('#playAuto').onclick = () => playList([{ src: D.auto }]);
+$('#stop').onclick = stop;
+$('#copy').onclick = async () => {
+  try { await navigator.clipboard.writeText(code()); $('#copy').textContent = '已复制'; }
+  catch (e) { $('#copy').textContent = '请手动复制左侧代码'; }
+  setTimeout(() => { $('#copy').textContent = '复制选择'; }, 1500);
+};
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>实时替换复盘</title>
+<style>
+  :root { --bg:#fafaf9; --fg:#1c1917; --muted:#78716c; --line:#e7e5e4; --card:#fff; --accent:#2563eb; --ok:#15803d; --warn:#b45309; --bad:#b91c1c; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#1c1917; --fg:#f5f5f4; --muted:#a8a29e; --line:#44403c; --card:#292524; --accent:#60a5fa; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; } }
+  :root[data-theme="dark"] { --bg:#1c1917; --fg:#f5f5f4; --muted:#a8a29e; --line:#44403c; --card:#292524; --accent:#60a5fa; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, "Microsoft YaHei", sans-serif; }
+  main { padding:16px; max-width:1040px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:16px; margin:24px 0 8px; }
+  .hint { color:var(--muted); font-size:13px; margin:0 0 10px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:8px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .card b { display:block; font-size:22px; font-variant-numeric:tabular-nums; }
+  .card span { color:var(--muted); font-size:12px; }
+  .ok b { color:var(--ok); } .warn b { color:var(--warn); } .bad b { color:var(--bad); }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  td.num { font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .wrap { overflow-x:auto; }
+  audio { height:32px; max-width:100%; }
+  .pair { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .pair label { color:var(--muted); font-size:12px; }
+  .mark { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:10px; }
+  details pre { white-space:pre-wrap; font-size:12px; color:var(--muted); }
+  .k-missed { color:var(--bad); } .k-unconfirmed { color:var(--warn); } .k-late { color:var(--accent); }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<main>
+<h1 id="title">实时替换复盘</h1>
+<p class="hint" id="sub"></p>
+<div class="cards" id="cards"></div>
+
+<h2>你标记的时刻</h2>
+<p class="hint">每个标记前 6 秒到后 3 秒：上面是游戏原声（截获到的），下面是你实际听到的（处理后）。表里是这段时间内引擎做的判断。</p>
+<div id="marks"></div>
+
+<h2>空格记录的语音</h2>
+<p class="hint" id="voicehint"></p>
+<div class="wrap"><table id="voices"><thead><tr><th>按键</th><th>语音</th><th>台词</th><th>定位</th><th>试听（原声 / 输出）</th></tr></thead><tbody></tbody></table></div>
+
+<h2>深度检查：离线复核</h2>
+<p class="hint" id="deephint"></p>
+<div class="wrap"><table id="deep"><thead><tr><th>时间</th><th>类型</th><th>台词</th><th>说明</th><th>试听（原声 / 输出）</th></tr></thead><tbody></tbody></table></div>
+
+<h2>运行状况</h2>
+<p class="hint">断音（播放缓冲用尽）、清除突发积压、过载直通、报错。时间是会话内的秒数。</p>
+<div class="wrap"><table id="health"><thead><tr><th>时间</th><th>事件</th><th>详情</th></tr></thead><tbody></tbody></table></div>
+
+<h2>替换的台词</h2>
+<div class="wrap"><table id="acc"><thead><tr><th>时间</th><th>台词</th><th>编号</th><th>判定用时</th><th>迟到</th><th>匹配度</th><th>能量</th><th></th></tr></thead><tbody></tbody></table></div>
+
+<h2>差一点通过的候选</h2>
+<p class="hint">被拒绝但分数接近门槛的候选：如果其中有真正的台词，就是漏换；复盘时可据此调整门槛。</p>
+<div class="wrap"><table id="rej"><thead><tr><th>时间</th><th>编号</th><th>已听</th><th>匹配度</th><th>能量 / 对照</th></tr></thead><tbody></tbody></table></div>
+</main>
+<script>
+const D = __DATA__;
+const $ = (s) => document.querySelector(s);
+const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;'}[c]));
+const I = D.info || {}, S = D.start || {};
+$('#title').textContent = `实时替换复盘 · ${D.session}`;
+$('#sub').textContent = `时长 ${Math.round(I.seconds || 0)} 秒 · 截获 ${S.capture || '?'} → 播放 ${S.play || '?'} · 延迟 ${S.delay_ms} + ${S.buffer_ms} ms`;
+const H = D.health || {};
+const n = (k) => (H[k] || []).length;
+const deep = D.deep && D.deep.rows ? D.deep : null;
+const cards = [
+  ['替换台词', D.accepted.filter(a => a.replace).length, 'ok'],
+  ['标记', D.marks.length, D.marks.length ? 'warn' : 'ok'],
+  ['空格记录', (D.voices || []).length, 'ok'],
+  ['断音', n('underrun'), n('underrun') ? 'warn' : 'ok'],
+  ['清除积压', n('drain'), n('drain') ? 'warn' : 'ok'],
+  ['过载直通', n('overload'), n('overload') ? 'bad' : 'ok'],
+  ['报错', n('error') + n('exception'), (n('error') + n('exception')) ? 'bad' : 'ok'],
+];
+if (deep) cards.push(['离线复核：漏换', deep.missed, deep.missed ? 'bad' : 'ok'], ['未确认的替换', deep.unconfirmed, deep.unconfirmed ? 'warn' : 'ok'], ['迟到', deep.late, deep.late ? 'warn' : 'ok']);
+$('#cards').innerHTML = cards.map(([k, v, c]) => `<div class="card ${c}"><b>${v}</b><span>${k}</span></div>`).join('');
+const pair = (o) => o && o.in ? `<div class="pair"><label>原声</label><audio controls preload="none" src="${o.in}"></audio><label>输出</label><audio controls preload="none" src="${o.out}"></audio></div>` : '（这次没有保存录音）';
+$('#marks').innerHTML = D.marks.length ? D.marks.map((m, i) => `<div class="mark"><b>标记 ${i + 1}</b> · ${fmt(m.t)}${pair(m)}
+  <div class="wrap"><table><thead><tr><th>时间</th><th>事件</th><th>编号</th><th>台词</th><th>迟到</th></tr></thead><tbody>${m.near.map(e => `<tr><td class="num">${fmt(e.t)}</td><td>${{accept: '替换', cut: '被下一句打断', stop: '判定停止', reject: '拒绝（接近门槛）'}[e.type] || e.type}</td><td>${esc(e.id)}</td><td>${esc(e.text)}</td><td class="num">${e.late_ms ? e.late_ms + ' ms' : ''}</td></tr>`).join('') || '<tr><td colspan="5">这段时间没有判断记录</td></tr>'}</tbody></table></div></div>`).join('') : '<p class="hint">这次没有标记。</p>';
+const V = D.voices || [];
+$('#voicehint').textContent = '每次按空格，从人声分轨里取按键之前最后一段人声（有离线复核时用它的分轨，没有时单独分离按键前 15 秒），能对上台词的就取整句，前后各留 0.3 秒；没有录音时用实时判断到的台词，再不行就取按键前 8 秒。'
+  + '空格也是游戏的跳跃键：按键前 15 秒内没有人声的不算' + (D.voices_dropped ? `（这次丢掉了 ${D.voices_dropped} 次）` : '') + '；连按在同一段语音上只算一条。';
+$('#voices tbody').innerHTML = V.map(v => `<tr><td class="num">${fmt(v.t)}${v.presses > 1 ? ` ×${v.presses}` : ''}</td><td class="num">${fmt(v.start)}–${fmt(v.end)}</td><td>${esc(v.id)} ${esc(v.text)}</td><td>${esc(v.how)}</td><td>${pair(v)}</td></tr>`).join('') || '<tr><td colspan="5">这次没有用空格记录语音</td></tr>';
+if (deep) {
+  $('#deephint').innerHTML = `离线流程在截获的原声里找到 ${deep.offline_lines} 句（其中 ${deep.offline_replaced} 句需要替换）。<b>漏换</b>：离线确认、实时没换；<b>未确认</b>：实时换了、离线没找到（可能错换）；<b>迟到</b>：开头一段仍是原声。${deep.page ? `<a href="${deep.page}">离线结果的对比页</a>` : ''}`;
+  const names = {missed: '漏换', unconfirmed: '未确认', late: '迟到'};
+  $('#deep tbody').innerHTML = deep.rows.map(r => `<tr><td class="num">${fmt(r.t)}</td><td class="k-${r.kind}">${names[r.kind]}</td><td>${esc(r.id)}</td><td>${esc(r.detail)}</td><td>${pair(r)}</td></tr>`).join('') || '<tr><td colspan="5">实时结果和离线复核一致</td></tr>';
+} else {
+  $('#deephint').textContent = D.deep && D.deep.error ? `离线复核失败：${D.deep.error.slice(-300)}` : '这次没有做离线复核（会话超过 30 分钟时需要加 --deep）。';
+}
+const hrows = [];
+for (const [k, list] of Object.entries(H)) for (const e of list) {
+  const label = {underrun: '断音', drain: '清除积压', overload: '过载直通', error: '报错', exception: '内部异常', resync: '重新对齐', drift: '时钟补偿', render_guard: '音量限幅'}[k] || k;
+  let d = '';
+  if (k === 'drain') d = `丢弃 ${e.dropped_ms} ms`;
+  else if (k === 'render_guard') d = `${esc(e.id)} 插入音量超出预期 ${e.over_db} dB，已压到 +12 dB（第 ${e.count} 次）`;
+  else if (k === 'overload') d = `积压 ${e.backlog_ms} ms`;
+  else if (k === 'resync') d = `${e.id} 移动 ${e.shift_ms} ms`;
+  else if (k === 'drift') d = `比例 ${e.ratio_ppm} ppm，缓冲 ${e.backlog_ms} ms`;
+  else if (k === 'underrun') d = `输入电平 ${e.input_level_db} dB`;
+  else d = `${esc(e.where || e.stage || '')} ${esc(e.error || '')}${e.trace ? `<details><summary>详情</summary><pre>${esc(e.trace)}</pre></details>` : ''}`;
+  hrows.push([e.t ?? 0, `<tr><td class="num">${fmt(e.t ?? 0)}</td><td>${label}</td><td>${d}</td></tr>`]);
+}
+hrows.sort((a, b) => a[0] - b[0]);
+$('#health tbody').innerHTML = hrows.map(r => r[1]).join('') || '<tr><td colspan="3">一切正常</td></tr>';
+$('#acc tbody').innerHTML = D.accepted.map(a => `<tr><td class="num">${fmt(a.t)}</td><td>${esc(a.text)}</td><td>${esc(a.id)}</td><td class="num">${a.decided_ms} ms</td><td class="num">${a.late_ms ? a.late_ms + ' ms' : '—'}</td><td class="num">${a.ncc}</td><td class="num">${a.ex} dB</td><td>${a.replace ? '' : '保留原声'}</td></tr>`).join('');
+$('#rej tbody').innerHTML = D.rejects.map(r => `<tr><td class="num">${fmt(r.t)}</td><td>${esc(r.id)}</td><td class="num">${r.heard_ms} ms</td><td class="num">${r.ncc}</td><td class="num">${r.ex} / ${r.null} dB</td></tr>`).join('') || '<tr><td colspan="5">没有</td></tr>';
+</script>
+</body>
+</html>

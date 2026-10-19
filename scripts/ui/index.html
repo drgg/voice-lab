@@ -1,0 +1,842 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>voice-lab</title>
+<!-- voice-lab's window, served by scripts/ui_server.py (127.0.0.1 only). Every action goes to the server, which runs
+     scripts/launch.ps1 with switches; nothing here is loaded from the internet. -->
+<style>
+:root {
+  --bg: #f3f4f7; --surface: #ffffff; --surface2: #f7f8fb; --border: #e2e5ec; --text: #171e2b; --muted: #687285;
+  --faint: #9aa2b1; --accent: #5856d6; --accent2: #8073f2; --accent-soft: #ecebfd;
+  --ok: #138a5b; --ok-soft: #e3f4ec; --warn: #b07405; --warn-soft: #fbf0d9; --fail: #d03b55; --fail-soft: #fbe6ea;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 6px 20px rgba(16, 24, 40, .06);
+  --radius: 16px; --mono: "Cascadia Mono", "Cascadia Code", Consolas, "Microsoft YaHei UI", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1015; --surface: #151922; --surface2: #1a1f29; --border: #262c38; --text: #e6e9f0; --muted: #959eb1;
+    --faint: #69728a; --accent: #8b88ff; --accent2: #a796ff; --accent-soft: #24234a;
+    --ok: #3fcf92; --ok-soft: #12302a; --warn: #f0b440; --warn-soft: #33290f; --fail: #ff6b82; --fail-soft: #3a1c24;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px rgba(0, 0, 0, .28);
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--text); min-height: 100vh; padding-bottom: 64px;
+  font: 14px/1.55 "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+[hidden] { display: none !important; }
+
+/* top bar */
+.top {
+  position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 16px; padding: 14px 28px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(12px);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.logo {
+  width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; color: #fff;
+  background: linear-gradient(135deg, var(--accent2), var(--accent)); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.brand h1 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: .01em; }
+.brand p { margin: 0; font-size: 12px; color: var(--muted); }
+.chips { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.chip {
+  display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px; border-radius: 999px; font-size: 12.5px;
+  background: var(--surface); border: 1px solid var(--border); color: var(--muted); white-space: nowrap;
+}
+.cast { display: grid; gap: 14px; }
+.castrow { border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px 14px; background: var(--surface2); }
+.casthead { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.casthead b { font-size: 15px; font-weight: 650; }
+.casthead .tag { font-size: 11.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
+.casthead .sp { flex: 1; }
+.castrow button.chip { cursor: pointer; font: inherit; }
+.castrow button.chip.on { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 55%, var(--border)); background: var(--ok-soft); }
+.castrow button.chip:disabled { cursor: default; opacity: .55; }
+.castrow .empty { font-size: 12.5px; color: var(--muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+.dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.fail { background: var(--fail); }
+.dot.live { background: var(--fail); box-shadow: 0 0 0 0 var(--fail); animation: beat 1.6s infinite; }
+@keyframes beat { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--fail) 55%, transparent); } 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+/* layout */
+main { max-width: 1240px; margin: 0 auto; padding: 22px 28px 28px; display: grid; gap: 20px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+.card-h { display: flex; align-items: center; gap: 10px; padding: 18px 20px 6px; }
+.card-h h3 { margin: 0; font-size: 15px; font-weight: 650; }
+.card-h .sub { color: var(--muted); font-size: 12.5px; }
+.card-h .actions { margin-left: auto; display: flex; gap: 8px; }
+.card-b { padding: 10px 20px 20px; }
+.cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; min-width: 0; }
+@media (max-width: 1000px) {
+  .cols { grid-template-columns: minmax(0, 1fr); }
+  .hero { grid-template-columns: minmax(0, 1fr) !important; }
+  .hero-r { border-left: 0; border-top: 1px solid var(--border); }
+}
+@media (max-width: 640px) {
+  .top { position: static; padding: 12px 16px; flex-wrap: wrap; }
+  .chips { margin-left: 0; justify-content: flex-start; }
+  main { padding: 16px; gap: 16px; }
+  .cols, .stack { gap: 16px; }
+  .hero-l, .hero-r { padding: 20px 18px; }
+  .voices { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metric.wide { grid-column: span 2; }
+  .card-h { flex-wrap: wrap; padding: 16px 16px 6px; }
+  .card-b { padding: 10px 16px 16px; }
+  .snaprow { flex-wrap: wrap; }
+  .dock-bar { padding: 0 14px; }
+}
+.ico { width: 18px; height: 18px; flex: none; }
+
+/* buttons */
+.btn {
+  display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); font-size: 13.5px; font-weight: 550; transition: background .15s, border-color .15s, transform .1s;
+}
+.btn:hover { background: var(--surface2); border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+.btn.danger { background: var(--fail); border-color: var(--fail); color: #fff; }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+.btn.sm { height: 28px; padding: 0 10px; font-size: 12.5px; border-radius: 8px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+/* hero: live replacement */
+.hero { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); overflow: hidden; }
+.hero-l { padding: 26px 28px; }
+.hero-r {
+  padding: 26px 28px; display: flex; flex-direction: column; align-items: center; gap: 16px; border-left: 1px solid var(--border);
+  background: radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 70%), var(--surface2);
+}
+.eyebrow { font-size: 12px; font-weight: 650; letter-spacing: .12em; color: var(--accent); text-transform: uppercase; }
+.hero h2 { margin: 4px 0 4px; font-size: 24px; font-weight: 700; letter-spacing: .01em; }
+.hero-l > p { margin: 0 0 18px; color: var(--muted); }
+.label { font-size: 12px; font-weight: 600; color: var(--muted); margin: 0 0 8px; letter-spacing: .04em; }
+.voices { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.voice {
+  text-align: left; padding: 12px 14px; border-radius: 12px; border: 1.5px solid var(--border); background: var(--surface);
+  cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .1s;
+}
+.voice:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.voice.sel { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.voice:disabled { opacity: .5; cursor: not-allowed; }
+.voice b { display: block; font-size: 16px; font-weight: 650; }
+.voice span { font-size: 12px; color: var(--muted); }
+.opts { margin-top: 18px; display: grid; gap: 12px; }
+.switch { display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; }
+.switch input { display: none; }
+.track { width: 38px; height: 22px; border-radius: 999px; background: var(--border); position: relative; transition: background .2s; flex: none; }
+.track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .2s; }
+.switch input:checked + .track { background: var(--accent); }
+.switch input:checked + .track::after { transform: translateX(16px); }
+.switch small { display: block; color: var(--muted); font-size: 12px; }
+.field { display: flex; align-items: center; gap: 10px; }
+.field input, .inp {
+  flex: 1; height: 34px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  padding: 0 12px; font: inherit; font-size: 13.5px; outline: none;
+}
+.field input:focus, .inp:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
+details.more > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; list-style: none; }
+details.more > summary::before { content: "▸ "; } details.more[open] > summary::before { content: "▾ "; }
+details.more .field { margin-top: 8px; }
+
+.bigbtn {
+  width: 148px; height: 148px; border-radius: 50%; border: 0; cursor: pointer; color: #fff; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 4px; font-size: 19px; font-weight: 650; letter-spacing: .12em;
+  background: radial-gradient(circle at 32% 26%, var(--accent2), var(--accent) 70%);
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--accent) 38%, transparent), inset 0 1px 0 rgba(255,255,255,.25);
+  transition: transform .15s, box-shadow .2s, filter .2s;
+}
+.bigbtn:hover { transform: translateY(-1px) scale(1.02); }
+.bigbtn small { font-size: 11.5px; font-weight: 500; letter-spacing: .04em; opacity: .85; }
+.bigbtn .ico { width: 34px; height: 34px; }
+.bigbtn.on { background: radial-gradient(circle at 32% 26%, #ff8fa1, var(--fail) 70%); animation: ring 2.2s infinite; }
+.bigbtn.wait { filter: saturate(.6); cursor: progress; }
+.bigbtn:disabled { filter: grayscale(.8); opacity: .55; cursor: not-allowed; transform: none; }
+@keyframes ring { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--fail) 45%, transparent); } 70% { box-shadow: 0 0 0 22px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+.why { min-height: 18px; font-size: 12.5px; color: var(--muted); text-align: center; }
+.metrics { width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.metric { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 9px 12px; min-width: 0; }
+.metric span { display: block; font-size: 11.5px; color: var(--muted); }
+.metric b { display: block; font-size: 16px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.metric.wide { grid-column: span 3; }
+.meter { height: 6px; border-radius: 99px; background: var(--border); overflow: hidden; margin-top: 6px; }
+.meter i { display: block; height: 100%; width: 0; border-radius: 99px; background: linear-gradient(90deg, var(--ok), var(--warn) 75%, var(--fail)); transition: width .4s; }
+.flags { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.flag { font-size: 11.5px; font-weight: 650; padding: 2px 8px; border-radius: 6px; background: var(--warn-soft); color: var(--warn); }
+.route {
+  width: 100%; display: flex; gap: 10px; align-items: flex-start; padding: 11px 13px; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--surface);
+}
+.route b { font-weight: 600; } .route small { display: block; color: var(--muted); font-size: 12px; }
+.route.ok { border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); background: var(--ok-soft); }
+.route.warn { border-color: color-mix(in srgb, var(--warn) 40%, var(--border)); background: var(--warn-soft); }
+.keys { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; font-size: 12.5px; color: var(--muted); }
+kbd {
+  font-family: var(--mono); font-size: 11.5px; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--border);
+  border-bottom-width: 2px; background: var(--surface); color: var(--text);
+}
+.last { font-size: 12.5px; color: var(--muted); text-align: center; }
+
+/* lists */
+.list { display: grid; gap: 2px; }
+.item { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 10px; }
+.item:hover { background: var(--surface2); }
+.item .t { min-width: 0; flex: 1; }
+.item .t b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item .t small { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item .when { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.scroll { max-height: 330px; overflow: auto; margin: 0 -10px; padding: 0 10px; }
+.badge { font-size: 11px; font-weight: 650; padding: 1px 7px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+.badge.gray { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+.badge.ok { background: var(--ok-soft); color: var(--ok); } .badge.warn { background: var(--warn-soft); color: var(--warn); } .badge.fail { background: var(--fail-soft); color: var(--fail); }
+label.item { cursor: pointer; }
+label.item input { accent-color: var(--accent); }
+.empty { color: var(--muted); padding: 14px 10px; font-size: 13px; }
+
+/* environment */
+.stats { display: flex; gap: 10px; margin-bottom: 14px; }
+.stat { flex: 1; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface2); }
+.stat b { display: block; font-size: 22px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 12px; color: var(--muted); }
+.stat.fail b { color: var(--fail); } .stat.warn b { color: var(--warn); } .stat.ok b { color: var(--ok); }
+.envs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.fixbar { display: flex; align-items: center; gap: 12px; padding: 11px 13px; border-radius: 12px; background: var(--accent-soft); margin-bottom: 12px; }
+.fixbar b { color: var(--accent); }
+.fixbar .btn { margin-left: auto; }
+details.area { border-top: 1px solid var(--border); }
+details.area > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 10px 2px; font-weight: 600; }
+details.area > summary::-webkit-details-marker { display: none; }
+details.area > summary .n { margin-left: auto; display: flex; gap: 6px; }
+details.area > summary::after { content: "›"; color: var(--faint); transition: transform .2s; font-size: 18px; line-height: 1; }
+details.area[open] > summary::after { transform: rotate(90deg); }
+.row { display: flex; gap: 10px; padding: 6px 2px 8px 4px; }
+.row .dot { margin-top: 7px; }
+.row .d { color: var(--muted); }
+.row .h { color: var(--faint); font-size: 12px; }
+.sysline { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--muted); margin-top: 12px; }
+
+/* tools */
+.tools { display: grid; gap: 10px; }
+.tool { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; text-align: left; width: 100%; }
+.tool:hover { background: var(--surface2); border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.tool .ti { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); flex: none; }
+.tool b { display: block; font-weight: 600; } .tool small { color: var(--muted); font-size: 12px; }
+.snaprow { display: flex; gap: 8px; margin-top: 12px; }
+
+/* dock: the running action's output */
+.dock {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: var(--surface); border-top: 1px solid var(--border);
+  box-shadow: 0 -8px 24px rgba(16, 24, 40, .08);
+}
+.dock-bar { display: flex; align-items: center; gap: 12px; height: 50px; padding: 0 22px; cursor: pointer; }
+.dock-title { font-weight: 600; white-space: nowrap; }
+.dock-status { color: var(--muted); font-family: var(--mono); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+.dock .log {
+  margin: 0; height: 0; overflow: auto; padding: 0 22px; font-family: var(--mono); font-size: 12.5px; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word; transition: height .25s; background: var(--surface2); border-top: 1px solid transparent;
+}
+.dock.open .log { height: min(42vh, 380px); padding: 10px 22px 14px; border-top-color: var(--border); }
+.log .h { font-weight: 700; color: var(--accent); margin-top: 6px; }
+.log .ok { color: var(--ok); } .log .warn { color: var(--warn); } .log .fail { color: var(--fail); }
+.spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); animation: rot .8s linear infinite; flex: none; }
+@keyframes rot { to { transform: rotate(360deg); } }
+
+/* modal, toast, offline */
+.modal-bg { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: rgba(10, 14, 22, .45); backdrop-filter: blur(3px); padding: 20px; }
+.modal { width: min(520px, 100%); background: var(--surface); border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 24px 60px rgba(0,0,0,.3); padding: 22px 22px 18px; }
+.modal h4 { margin: 0 0 8px; font-size: 17px; }
+.modal .body { color: var(--muted); max-height: 52vh; overflow: auto; }
+.modal .body ul { padding-left: 18px; margin: 8px 0; } .modal .body li { margin: 3px 0; }
+.modal .foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.toasts { position: fixed; right: 22px; bottom: 66px; z-index: 30; display: grid; gap: 8px; }
+.toast { padding: 10px 14px; border-radius: 12px; background: var(--text); color: var(--bg); box-shadow: var(--shadow); max-width: 380px; font-size: 13px; transition: opacity .4s, transform .4s; }
+.toast.fail { background: var(--fail); color: #fff; } .toast.out { opacity: 0; transform: translateY(6px); }
+.offline { position: fixed; top: 0; left: 0; right: 0; z-index: 40; padding: 10px 20px; text-align: center; background: var(--fail); color: #fff; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="offline" id="offline" hidden>与后台的连接断开了：重新双击 一键启动.cmd 打开</div>
+
+<header class="top">
+  <div class="brand">
+    <div class="logo"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/></svg></div>
+    <div><h1>voice-lab</h1><p>同一声优的台词替换</p></div>
+  </div>
+  <div class="chips" id="chips"></div>
+</header>
+
+<main>
+  <section class="card hero">
+    <div class="hero-l">
+      <div class="eyebrow">实时替换</div>
+      <h2>边玩边换台词</h2>
+      <p>游戏原声进来，各角色的台词换成为她选的声线，再送到你的耳机。整体延迟约 0.3 秒。</p>
+      <div class="label">角色与声线</div>
+      <div class="cast" id="cast"></div>
+      <div class="opts">
+        <label class="switch">
+          <input type="checkbox" id="optRoute" checked>
+          <span class="track"></span>
+          <span>游戏声音自动切换<small>开始后把游戏的输出切到虚拟设备，结束时切回</small></span>
+        </label>
+        <details class="more">
+          <summary>更多设置</summary>
+          <div class="field"><span class="muted">固定输出设备</span><input id="optPlay" placeholder="留空：自动（跟随 Windows 默认的真实设备）"></div>
+        </details>
+      </div>
+    </div>
+    <div class="hero-r">
+      <button class="bigbtn" id="liveBtn"></button>
+      <div class="why" id="liveWhy"></div>
+      <div class="flags" id="liveFlags"></div>
+      <div class="metrics" id="metrics" hidden>
+        <div class="metric"><span>时长</span><b id="mTime">–</b></div>
+        <div class="metric"><span>已替换</span><b id="mDone">–</b></div>
+        <div class="metric"><span>正在播放</span><b id="mPlaying">–</b></div>
+        <div class="metric wide"><span>输入电平 <em class="mono" id="mLevel"></em></span><div class="meter"><i id="mMeter"></i></div></div>
+        <div class="metric"><span>每步处理</span><b id="mStep">–</b></div>
+        <div class="metric"><span>缓冲</span><b id="mBuf">–</b></div>
+        <div class="metric"><span>输出到</span><b id="mOut">–</b></div>
+      </div>
+      <div class="route" id="route"></div>
+      <div class="keys"><span><kbd>~</kbd> 标记“听着不对”</span><span><kbd>空格</kbd> 记录刚过去的语音</span><span><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>/<kbd>2</kbd> 角色进出队伍</span><span><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd> 旁路</span><span><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Q</kbd> 退出</span></div>
+      <div class="last" id="last"></div>
+    </div>
+  </section>
+
+  <div class="cols">
+    <div class="stack">
+      <section class="card">
+        <div class="card-h">
+          <h3>环境</h3><span class="sub" id="checkWhen"></span>
+          <div class="actions">
+            <button class="btn sm" id="btnDeep">深度检查</button>
+            <button class="btn sm primary" id="btnCheck">检查</button>
+          </div>
+        </div>
+        <div class="card-b">
+          <div class="stats" id="stats"></div>
+          <div class="envs" id="envs"></div>
+          <div class="fixbar" id="fixbar" hidden></div>
+          <div id="results"></div>
+          <div class="sysline" id="sysline"></div>
+        </div>
+      </section>
+      <section class="card">
+        <div class="card-h"><h3>快照与恢复</h3><span class="sub">各 Python 环境的精确包版本和第三方仓库 commit</span></div>
+        <div class="card-b">
+          <div class="list scroll" id="sources" style="max-height:230px"></div>
+          <div class="snaprow">
+            <button class="btn" id="btnPreview">预览恢复</button>
+            <button class="btn" id="btnRestore">恢复到所选</button>
+          </div>
+          <div class="snaprow">
+            <input class="inp" id="snapLabel" placeholder="快照说明（可留空）">
+            <button class="btn primary" id="btnSnap">保存快照</button>
+          </div>
+        </div>
+      </section>
+    </div>
+    <div class="stack">
+      <section class="card">
+        <div class="card-h">
+          <h3>试听页面</h3><span class="sub" id="pagesSub"></span>
+          <div class="actions"><button class="btn sm" id="btnPages">刷新</button></div>
+        </div>
+        <div class="card-b"><div class="list scroll" id="pages"><div class="empty">读取中…</div></div></div>
+      </section>
+      <section class="card">
+        <div class="card-h"><h3>工具</h3></div>
+        <div class="card-b tools">
+          <button class="tool" id="tGame"><span class="ti"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></span><span><b>游戏声音切回默认设备</b><small>补救用：游戏没开时，等它下次启动再切</small></span></button>
+          <button class="tool" id="tShortcut"><span class="ti"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span><span><b>在桌面创建快捷方式</b><small>双击就打开这个窗口</small></span></button>
+          <button class="tool" id="tMenu"><span class="ti"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 4 4-4 4M12 16h7"/></svg></span><span><b>打开文字菜单</b><small>原来的命令行启动器，功能相同</small></span></button>
+          <button class="tool" id="tFolder"><span class="ti"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span><span><b>打开项目文件夹</b><small id="rootPath"></small></span></button>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<footer class="dock" id="dock">
+  <div class="dock-bar" id="dockBar">
+    <span id="dockIcon" class="dot"></span>
+    <span class="dock-title" id="dockTitle">没有正在进行的操作</span>
+    <span class="dock-status" id="dockStatus"></span>
+    <button class="btn sm danger" id="dockStop" hidden>停止</button>
+    <button class="btn sm ghost" id="dockToggle">展开</button>
+  </div>
+  <pre class="log" id="log"></pre>
+</footer>
+
+<div class="modal-bg" id="modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <h4 id="mTitle"></h4>
+    <div class="body" id="mBody"></div>
+    <div class="foot"><button class="btn" id="mCancel">取消</button><button class="btn primary" id="mOk">确定</button></div>
+  </div>
+</div>
+<div class="toasts" id="toasts"></div>
+
+<script>
+"use strict";
+const TOKEN = "__VL_TOKEN__";
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const back = b => (!b || b === "Windows default") ? "Windows 默认设备" : b;
+const ICON = {
+  play: '<svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>',
+  stop: '<svg class="ico" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>',
+};
+
+async function api(path, body) {
+  const opt = body === undefined ? {} : {
+    method: "POST", headers: { "Content-Type": "application/json", "X-VL": TOKEN }, body: JSON.stringify(body)
+  };
+  const r = await fetch(path, opt);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((data && data.error) || r.statusText);
+  return data;
+}
+
+function toast(msg, kind = "") {
+  const t = document.createElement("div");
+  t.className = "toast " + kind;
+  t.textContent = msg;
+  $("#toasts").append(t);
+  setTimeout(() => t.classList.add("out"), 4200);
+  setTimeout(() => t.remove(), 4700);
+}
+
+function ask(title, html, okText = "确定", danger = false) {
+  return new Promise(res => {
+    $("#mTitle").textContent = title;
+    $("#mBody").innerHTML = html;
+    const ok = $("#mOk"), m = $("#modal");
+    ok.textContent = okText;
+    ok.className = "btn " + (danger ? "danger" : "primary");
+    m.hidden = false;
+    const done = v => { m.hidden = true; ok.onclick = $("#mCancel").onclick = document.onkeydown = null; res(v); };
+    ok.onclick = () => done(true);
+    $("#mCancel").onclick = () => done(false);
+    document.onkeydown = e => { if (e.key === "Escape") done(false); };
+  });
+}
+
+// ------------------------------------------------------------------ state
+let S = null;                     // /api/status
+let J = null;                     // the job shown in the dock
+let jobId = 0, jobN = 0, polling = false, stopping = false;
+const sawRunning = new Set();
+let check = null, selSource = null;
+
+async function refresh() {
+  try {
+    S = await api("/api/status");
+    $("#offline").hidden = true;
+  } catch (e) {
+    $("#offline").hidden = false;
+    return;
+  }
+  render();
+  if (S.job && S.job.running && !polling) pollJob();
+}
+
+async function pollJob() {
+  polling = true;
+  try {
+    for (;;) {
+      const j = await api("/api/job?since=" + jobN);
+      if (!j) break;
+      if (j.id !== jobId) { jobId = j.id; jobN = 0; $("#log").textContent = ""; continue; }
+      appendLog(j.lines);
+      jobN += j.lines.length;
+      J = j;
+      if (j.running) sawRunning.add(j.id);
+      renderDock();
+      renderLive();
+      if (!j.running) { finished(j); break; }
+      await sleep(600);
+    }
+  } catch (e) { /* the next status round tries again */ }
+  polling = false;
+}
+
+function finished(j) {
+  stopping = false;
+  if (!sawRunning.has(j.id)) return;
+  sawRunning.delete(j.id);
+  const ok = j.exit === 0;
+  if (j.kind === "check") loadCheck();
+  if (j.kind === "live") toast("实时替换已结束" + (S && S.last_session ? "，复盘页已生成" : ""));
+  else toast(`“${j.title}”${ok ? "完成" : "结束，有问题：看下方输出"}`, ok ? "" : "fail");
+  if (["snapshot", "restore", "setup"].includes(j.kind)) refresh();
+  if (j.kind === "live") setTimeout(loadPages, 1500);
+}
+
+async function startJob(kind, extra = {}) {
+  try {
+    const b = await api("/api/job", { kind, ...extra });
+    jobId = b.id; jobN = 0;
+    $("#log").textContent = "";
+    J = { ...b, lines: [] };
+    sawRunning.add(b.id);
+    if (kind !== "live") setDock(true);
+    renderDock();
+    renderLive();
+    if (!polling) pollJob();
+    return true;
+  } catch (e) {
+    toast(e.message, "fail");
+    return false;
+  }
+}
+
+// ------------------------------------------------------------------ render
+function render() {
+  $("#rootPath").textContent = S.root;
+  renderChips();
+  renderCast();
+  renderLive();
+  renderEnv();
+  renderSources();
+  renderDock();
+}
+
+function chip(dot, text) { return `<span class="chip"><span class="dot ${dot}"></span>${esc(text)}</span>`; }
+
+function renderChips() {
+  const miss = S.envs.filter(e => e.need && !e.ok).map(e => e.name);
+  const c = S.check && S.check.count;
+  const sys = S.system;
+  $("#chips").innerHTML = [
+    S.live ? chip("live", "实时替换运行中") : "",
+    miss.length ? chip("fail", "缺环境：" + miss.join("、"))
+      : c ? chip(c.FAIL ? "fail" : c.WARN ? "warn" : "ok", c.FAIL ? `${c.FAIL} 项问题` : c.WARN ? `${c.WARN} 项注意` : "环境正常")
+      : chip("ok", "环境齐全"),
+    chip(S.route.game_running ? "ok" : "", S.route.game_running ? "游戏运行中" : "游戏未运行"),
+    chip(S.page_server ? "ok" : "", S.page_server ? "页面服务已开" : "页面服务未开"),
+    chip(sys.ram_free_gb < 3 ? "warn" : "", `可用内存 ${sys.ram_free_gb} GB`),
+  ].join("");
+}
+
+// one row per game character: the voices and versions finished for her, the one picked, in the party or not
+const pickOf = c => c.pick ? c.options.find(o => o.voice === c.pick.voice && o.group === c.pick.group) : null;
+const mainPick = () => { const m = (S.cast || []).find(c => c.main); return m ? pickOf(m) : null; };
+function renderCast() {
+  const cs = S.cast || [];
+  const party = Object.fromEntries((S.party || []).map(p => [p.id, p]));
+  $("#cast").innerHTML = cs.map(c => {
+    const p = party[c.id];
+    const chipHtml = c.pick
+      ? `<button class="chip ${c.on ? "on" : ""}" data-party="${esc(c.id)}" title="运行时每 2 秒读一次游戏右侧的队伍栏，自动切换；点这里手动更正（游戏里按 ${esc(p ? p.key : "")}），直到队伍再变化。不在队伍里的角色不参与匹配，计算更省"><span class="dot ${c.on ? "ok" : ""}"></span>${c.on ? "在队伍里" : "不在队伍里"}</button>`
+      : `<button class="chip" disabled><span class="dot"></span>不替换</button>`;
+    const opts = c.options.map(o => {
+      const sel = c.pick && o.voice === c.pick.voice && o.group === c.pick.group;
+      return `<button class="voice ${sel ? "sel" : ""}" data-c="${esc(c.id)}" data-v="${esc(o.voice)}" data-g="${esc(o.group)}" ${o.lines ? "" : "disabled"}>
+        <b>${esc(o.voice_label)}</b><span>${esc(o.group_label)} · ${o.lines} 句</span></button>`;
+    }).join("");
+    const none = c.main ? "" : `<button class="voice ${c.pick ? "" : "sel"}" data-c="${esc(c.id)}" data-v="" data-g=""><b>不替换</b><span>保留游戏原声</span></button>`;
+    return `<div class="castrow"><div class="casthead"><b>${esc(c.label)}</b>${c.main ? '<span class="tag">主角色</span>' : ""}<span class="sp"></span>${chipHtml}</div>
+      <div class="voices">${opts || '<span class="empty">还没有成品台词</span>'}${none}</div></div>`;
+  }).join("") || '<div class="empty">还没有任何角色的台词</div>';
+}
+
+function liveState() {
+  if (J && J.kind === "live" && J.running) return stopping ? "stopping" : (J.status ? "running" : "starting");
+  if (S && S.live) return stopping ? "stopping" : "external";
+  return "idle";
+}
+
+const RE = /^([\d.]+)s\s+in\s+(-?[\d.]+) dB\s+replaced\s+(\d+)\s+playing\s+(\S+)\s+step\s+([\d.]+)\/(\d+) ms\s+buffer\s+(\d+) ms\s+->\s+(.+?)(?:\s{2,}(.*?))?\s*$/;
+function fmtTime(s) { s = Math.floor(s); const m = Math.floor(s / 60); return m >= 60 ? `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}` : `${m}:${String(s % 60).padStart(2, "0")}`; }
+
+function renderLive() {
+  if (!S) return;
+  const st = liveState();
+  const btn = $("#liveBtn"), why = $("#liveWhy");
+  const v = mainPick();
+  const who = (S.cast || []).filter(c => c.pick).map(c => `${c.label}·${pickOf(c) ? pickOf(c).voice_label : ""}`).join("  ");
+  const busy = J && J.running && J.kind !== "live";
+  const tools = S.envs.find(e => e.name === "tools");
+  btn.className = "bigbtn" + (st === "running" || st === "external" ? " on" : st === "starting" || st === "stopping" ? " wait" : "");
+  btn.disabled = false;
+  if (st === "idle") {
+    btn.innerHTML = ICON.play + "开始<small>" + esc(who) + "</small>";
+    const block = !tools || !tools.ok ? "tools 环境没有装好：先在“环境”里自动修复"
+      : !v || !v.lines ? "主角色还没有选有成品的声线" : busy ? `“${J.title}”进行中，稍后再开始` : "";
+    btn.disabled = !!block;
+    why.textContent = block || "先开游戏还是先开这里都可以";
+  } else if (st === "starting") {
+    btn.innerHTML = '<span class="spin" style="width:30px;height:30px;border-width:3px;border-color:rgba(255,255,255,.35);border-top-color:#fff"></span>启动中<small>载入台词</small>';
+    why.textContent = "约 10 秒；点击可取消";
+  } else if (st === "stopping") {
+    btn.innerHTML = '<span class="spin" style="width:30px;height:30px;border-width:3px;border-color:rgba(255,255,255,.35);border-top-color:#fff"></span>正在停止';
+    btn.disabled = true;
+    why.textContent = "保存录音、生成复盘页…";
+  } else {
+    btn.innerHTML = ICON.stop + "停止" + (st === "external" ? "<small>在别处启动的</small>" : "");
+    why.textContent = st === "external" ? "实时工具在命令行里运行着" : "";
+  }
+  // metrics from the tool's status line
+  const m = J && J.kind === "live" && J.running && J.status ? J.status.trim().match(RE) : null;
+  $("#metrics").hidden = !m;
+  $("#liveFlags").innerHTML = "";
+  if (m) {
+    $("#mTime").textContent = fmtTime(+m[1]);
+    $("#mDone").textContent = m[3] + " 句";
+    $("#mPlaying").textContent = m[4] === "-" ? "–" : m[4];
+    const db = +m[2];
+    $("#mLevel").textContent = db <= -119 ? "无声" : db.toFixed(1) + " dB";
+    $("#mMeter").style.width = Math.max(0, Math.min(100, (db + 60) / 60 * 100)) + "%";
+    $("#mStep").textContent = `${m[5]} / ${m[6]} ms`;
+    $("#mBuf").textContent = m[7] + " ms";
+    $("#mOut").textContent = m[8];
+    $("#mOut").title = m[8];
+    const f = (m[9] || "").trim();
+    const names = { "BYPASS": "旁路中（原声）", "ENGINE DOWN": "引擎停止：原声直通", "PAUSED (game misrouted)": "暂停：游戏没走虚拟设备" };
+    $("#liveFlags").innerHTML = Object.keys(names).filter(k => f.includes(k)).map(k => `<span class="flag">${names[k]}</span>`).join("");
+  }
+  // the game's output
+  const r = S.route, el = $("#route"), autoOn = $("#optRoute").checked;
+  let cls = "", head, sub;
+  if (r.pending) {
+    cls = "warn"; head = `游戏关着，下次启动时切回 ${back(r.back)}`;
+    sub = [r.watcher ? "后台小程序在等" : "后台小程序没在运行：打开这个窗口时会自动补上", r.startup_item ? "已加入开机启动，重启后也会切回" : ""].filter(Boolean).join(" · ");
+  } else if (r.active && (st === "running" || st === "external" || st === "starting")) {
+    cls = "ok"; head = `游戏声音 → ${r.to}`; sub = `结束时切回 ${back(r.back)}`;
+  } else if (r.active) {
+    cls = "warn"; head = "游戏声音还没切回"; sub = "在“工具”里选“游戏声音切回默认设备”";
+  } else if (!autoOn) {
+    head = "不自动切换游戏声音"; sub = "请在 Windows 的“应用音量和设备首选项”里把游戏输出设到虚拟设备";
+  } else {
+    head = r.game_running ? "游戏正在运行" : "游戏声音自动切换";
+    sub = "开始后切到虚拟设备，结束时切回" + (r.game_running ? "；现在走它原来的设备" : "");
+  }
+  el.className = "route " + cls;
+  el.innerHTML = `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:2px;color:var(--${cls || "muted"})"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg><span><b>${esc(head)}</b><small>${esc(sub)}</small></span>`;
+  // the last session
+  const ls = S.last_session;
+  const n = ls ? ls.name : "";
+  $("#last").innerHTML = ls ? `上次 ${esc(`${n.slice(5, 7)}-${n.slice(8, 10)} ${n.slice(11, 13)}:${n.slice(14, 16)}`)} · ${fmtTime(ls.seconds)} · 替换 ${ls.replaced} 句` +
+    (ls.marks ? ` · 标记 ${ls.marks} 处` : "") + (ls.voices ? ` · 空格记录 ${ls.voices} 次` : "") + (ls.review ? ` · <a href="http://localhost:8765/${esc(ls.review)}" target="_blank">复盘页</a>` : "") : "";
+}
+
+function renderEnv() {
+  const sum = S.check;
+  const c = sum ? sum.count : null;
+  $("#checkWhen").textContent = sum ? `上次${sum.deep ? "深度" : ""}检查 ${sum.time}` : "还没有检查过";
+  $("#stats").innerHTML = c ? [["fail", c.FAIL, "问题"], ["warn", c.WARN, "注意"], ["ok", c.OK, "正常"]]
+    .map(([k, n, t]) => `<div class="stat ${n ? k : ""}"><b>${n}</b><span>${t}</span></div>`).join("") : "";
+  $("#envs").innerHTML = S.envs.map(e => `<span class="chip"><span class="dot ${e.ok ? "ok" : e.need ? "fail" : ""}"></span>${esc(e.name)}${e.need ? "" : "（可选）"}</span>`).join("");
+  const sys = S.system;
+  $("#sysline").innerHTML = `<span>内存 ${sys.ram_free_gb} / ${sys.ram_total_gb} GB 可用</span>` +
+    sys.disks.map(d => `<span>${esc(d.drive)} 盘剩余 ${d.free_gb} GB</span>`).join("");
+  const busy = J && J.running;
+  $("#btnCheck").disabled = $("#btnDeep").disabled = !!busy;
+  renderResults();
+}
+
+const AREA_ORDER = ["系统", "工具", "Python 环境", "深度检查", "第三方仓库", "模型", "声线", "运行状态"];
+const ST = { OK: ["ok", "正常"], WARN: ["warn", "注意"], FAIL: ["fail", "问题"], INFO: ["", "提示"], OPT: ["", "可选"] };
+
+function renderResults() {
+  const box = $("#results"), fb = $("#fixbar");
+  if (!check || !check.items) { box.innerHTML = ""; fb.hidden = true; return; }
+  const items = check.items;
+  const fix = items.filter(i => i.Fix && (i.Status === "FAIL" || i.Status === "WARN"));
+  const busy = J && J.running;
+  fb.hidden = !fix.length;
+  fb.innerHTML = `<span>可以自动处理 <b>${fix.length}</b> 项</span><button class="btn sm primary" id="btnFix" ${busy ? "disabled" : ""}>自动修复</button>`;
+  const areas = {};
+  for (const i of items) (areas[i.Area] = areas[i.Area] || []).push(i);
+  const names = Object.keys(areas).sort((a, b) => (AREA_ORDER.indexOf(a) + 99) % 99 - (AREA_ORDER.indexOf(b) + 99) % 99);
+  box.innerHTML = names.map(a => {
+    const list = areas[a];
+    const bad = list.filter(i => i.Status === "FAIL").length, warn = list.filter(i => i.Status === "WARN").length;
+    const n = (bad ? `<span class="badge fail">${bad} 问题</span>` : "") + (warn ? `<span class="badge warn">${warn} 注意</span>` : "") +
+      (!bad && !warn ? `<span class="badge ok">${list.length} 项正常</span>` : "");
+    return `<details class="area" ${bad || warn ? "open" : ""}><summary>${esc(a)}<span class="n">${n}</span></summary>` +
+      list.map(i => `<div class="row"><span class="dot ${ST[i.Status] ? ST[i.Status][0] : ""}" title="${ST[i.Status] ? ST[i.Status][1] : ""}"></span>
+        <div><div><b>${esc(i.Item)}</b> <span class="d">${esc(i.Detail)}</span></div>${i.Hint && i.Status !== "OK" ? `<div class="h">${esc(i.Hint)}</div>` : ""}</div></div>`).join("") +
+      "</details>";
+  }).join("");
+  const btn = $("#btnFix");
+  if (btn) btn.onclick = async () => {
+    const manual = items.filter(i => !i.Fix && (i.Status === "FAIL" || i.Status === "WARN"));
+    const html = `<p>会按顺序自动处理：</p><ul>${fix.map(i => `<li><b>${esc(i.Item)}</b>：${esc(i.Detail)}</li>`).join("")}</ul>` +
+      (manual.length ? `<p>这些需要你自己处理：</p><ul>${manual.map(i => `<li>${esc(i.Item)}：${esc(i.Hint || i.Detail)}</li>`).join("")}</ul>` : "") +
+      "<p>需要下载的会从官方来源下载；有差异的环境会先自动保存一份快照。可能要较长时间。</p>";
+    if (await ask("自动修复", html, "开始修复")) startJob("setup");
+  };
+}
+
+async function loadCheck() {
+  try { check = await api("/api/check"); } catch (e) { check = null; }
+  if (S) renderEnv();
+}
+
+function renderSources() {
+  const list = S.sources;
+  if (!selSource || !list.some(s => s.name === selSource)) selSource = (list[0] || {}).name || null;
+  $("#sources").innerHTML = list.length ? list.map(s => `
+    <label class="item"><input type="radio" name="src" value="${esc(s.name)}" ${s.name === selSource ? "checked" : ""}>
+      <span class="t"><b>${esc(s.note || s.name)}</b><small>${esc(s.kind)} · ${esc(s.name)}</small></span>
+      ${s.auto ? '<span class="badge gray">自动保存</span>' : s.kind === "快照" ? '<span class="badge">快照</span>' : `<span class="badge gray">${esc(s.kind)}</span>`}
+    </label>`).join("") : '<div class="empty">还没有快照</div>';
+  const busy = J && J.running;
+  for (const id of ["#btnPreview", "#btnRestore", "#btnSnap"]) $(id).disabled = !!busy || (id !== "#btnSnap" && !selSource);
+}
+
+async function loadPages() {
+  try {
+    const p = await api("/api/pages");
+    $("#pagesSub").textContent = p.server ? "在浏览器里打开" : "页面服务没开起来";
+    $("#pages").innerHTML = p.pages.length ? p.pages.map(x => `
+      <a class="item" href="${esc(p.base + x.rel)}" target="_blank" style="text-decoration:none;color:inherit">
+        <span class="t"><b>${esc(x.title)}</b><small class="mono">${esc(x.rel)}</small></span>
+        ${x.kind === "live" ? '<span class="badge">复盘</span>' : ""}<span class="when">${esc(x.time)}</span>
+      </a>`).join("") : '<div class="empty">还没有生成任何页面</div>';
+  } catch (e) {
+    $("#pages").innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+
+// ------------------------------------------------------------------ dock
+let dockOpen = false;
+function setDock(open) { dockOpen = open; $("#dock").classList.toggle("open", open); $("#dockToggle").textContent = open ? "收起" : "展开"; }
+
+function appendLog(lines) {
+  if (!lines || !lines.length) return;
+  const log = $("#log");
+  const atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+  const frag = document.createDocumentFragment();
+  for (const l of lines) {
+    const d = document.createElement("div");
+    d.textContent = l || " ";
+    if (/^\s*==\s/.test(l)) d.className = "h";
+    else if (/\[问题\]|失败|出错|Traceback|Error|^\s*!|\[!/.test(l)) d.className = "fail";
+    else if (/\[注意\]|没能|注意/.test(l)) d.className = "warn";
+    else if (/\[正常\]|已保存|已切回|已与|已恢复|已打上|已创建/.test(l)) d.className = "ok";
+    frag.append(d);
+  }
+  log.append(frag);
+  if (atEnd) log.scrollTop = log.scrollHeight;
+}
+
+function renderDock() {
+  const icon = $("#dockIcon"), stop = $("#dockStop");
+  if (!J) {
+    icon.className = "dot";
+    $("#dockTitle").textContent = "没有正在进行的操作";
+    $("#dockStatus").textContent = "";
+    stop.hidden = true;
+    return;
+  }
+  icon.className = J.running ? "spin" : "dot " + (J.exit === 0 ? "ok" : "fail");
+  const secs = ((J.ended || Date.now() / 1000) - J.started);
+  $("#dockTitle").textContent = J.title + (J.running ? "" : J.exit === 0 ? " · 完成" : " · 结束（有问题）");
+  let status = J.status || "";
+  const m = J.kind === "live" && status ? status.trim().match(RE) : null;
+  if (m) status = `已替换 ${m[3]} 句 · 输入 ${+m[2] <= -119 ? "无声" : (+m[2]).toFixed(1) + " dB"} · 输出到 ${m[8]}`;
+  else if (J.kind === "live" && J.running) status = "载入台词、打开设备…";
+  $("#dockStatus").textContent = (J.running ? fmtTime(secs) + "  " : "") + status;
+  stop.hidden = !(J.running && J.stoppable);
+}
+
+// ------------------------------------------------------------------ actions
+$("#cast").addEventListener("click", async e => {
+  const pb = e.target.closest("button[data-party]");
+  if (pb) {                                       // in or out of the party (the running tool follows within a second)
+    const c = (S.cast || []).find(x => x.id === pb.dataset.party);
+    if (!c) return;
+    try {
+      const r = await api("/api/party", { char: c.id, on: !c.on });
+      S.party = r.party;
+      c.on = !c.on;
+      renderCast();
+      if (liveState() !== "idle") toast(`${c.label}${c.on ? "已加入队伍：开始替换" : "已移出队伍：不再替换"}`);
+    } catch (err) { toast(err.message, "fail"); }
+    return;
+  }
+  const b = e.target.closest(".voice");
+  if (!b || b.disabled || b.classList.contains("sel")) return;
+  try {
+    const r = await api("/api/cast", { char: b.dataset.c, voice: b.dataset.v, group: b.dataset.g });
+    S.cast = r.cast; S.party = r.party; if (r.voice) S.voice = r.voice;
+    renderCast(); renderLive();
+    if (liveState() !== "idle") toast("换好了：下次开始时生效");
+  } catch (err) { toast(err.message, "fail"); }
+});
+$("#optRoute").addEventListener("change", renderLive);
+
+$("#liveBtn").addEventListener("click", async () => {
+  const st = liveState();
+  if (st === "idle") {
+    stopping = false;
+    const m = mainPick();
+    await startJob("live", { voice: m ? m.voice : S.voice, route: $("#optRoute").checked, play: $("#optPlay").value.trim() });
+  } else if (st === "running" || st === "starting" || st === "external") {
+    stopping = true;
+    renderLive();
+    try { await api("/api/stop", {}); } catch (e) { stopping = false; toast(e.message, "fail"); }
+  }
+});
+
+$("#btnCheck").onclick = () => startJob("check");
+$("#btnDeep").onclick = () => startJob("check", { deep: true });
+$("#btnPages").onclick = loadPages;
+$("#sources").addEventListener("change", e => { if (e.target.name === "src") selSource = e.target.value; });
+$("#btnPreview").onclick = () => selSource && startJob("restore_preview", { from: selSource });
+$("#btnRestore").onclick = async () => {
+  if (!selSource) return;
+  const s = S.sources.find(x => x.name === selSource) || {};
+  const ok = await ask("恢复环境", `<p>把 Python 环境恢复到 <b>${esc(s.note || s.name)}</b>（${esc(s.kind)}）：</p>
+    <ul><li>只改有差异的包；Python 本身坏了或版本不对的环境会重建，旧的先改名保留</li>
+    <li>恢复前会自动把当前状态存一份快照，恢复错了可以再恢复回来</li>
+    <li>正在使用某个环境的程序（例如实时工具）会被结束</li></ul><p>想先看会改什么，可以点“预览恢复”。</p>`, "恢复", true);
+  if (ok) startJob("restore", { from: selSource });
+};
+$("#btnSnap").onclick = async () => {
+  if (await startJob("snapshot", { label: $("#snapLabel").value.trim() })) $("#snapLabel").value = "";
+};
+$("#tGame").onclick = async () => {
+  if (await ask("游戏声音切回默认设备", "<p>把游戏的输出切回 Windows 默认设备。游戏开着就立即切；没开就等它下次启动时切（期间会在开机启动里放一个临时项，切完自动删除）。</p>", "切回"))
+    startJob("game_default");
+};
+$("#tShortcut").onclick = () => startJob("shortcut");
+$("#tMenu").onclick = () => api("/api/menu", {}).then(() => toast("文字菜单在新的命令行窗口里")).catch(e => toast(e.message, "fail"));
+$("#tFolder").onclick = () => api("/api/folder", {}).catch(e => toast(e.message, "fail"));
+$("#dockBar").addEventListener("click", e => { if (!e.target.closest("#dockStop")) setDock(!dockOpen); });
+$("#dockStop").onclick = async () => {
+  if (J && J.kind === "live") stopping = true;
+  try { await api("/api/stop", {}); } catch (e) { toast(e.message, "fail"); }
+};
+
+// ------------------------------------------------------------------ start
+(async () => {
+  await refresh();
+  if (!polling) pollJob();       // the last job's output, if there was one
+  loadCheck();
+  loadPages();
+  setInterval(refresh, 2000);
+  setInterval(() => { if (J && J.running) renderDock(); }, 1000);
+})();
+</script>
+</body>
+</html>

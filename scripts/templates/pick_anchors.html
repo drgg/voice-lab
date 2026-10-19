@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>挑选 __VOICE__ 锚点</title>
+<style>
+  :root { --bg:#fafaf9; --fg:#1c1917; --muted:#78716c; --line:#e7e5e4; --card:#fff; --yes:#15803d; --no:#b91c1c; --accent:#2563eb; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1c1917; --fg:#f5f5f4; --muted:#a8a29e; --line:#44403c; --card:#292524; --yes:#4ade80; --no:#f87171; --accent:#60a5fa; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, "Microsoft YaHei", sans-serif; }
+  header { position:sticky; top:0; z-index:2; background:var(--bg); border-bottom:1px solid var(--line); padding:12px 16px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .hint { color:var(--muted); font-size:13px; margin:0 0 8px; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  input[type=search], select { padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
+  button { padding:6px 12px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .count { font-weight:600; }
+  main { padding:8px 16px 40px; max-width:980px; margin:0 auto; }
+  .row { display:grid; grid-template-columns: 1fr auto; gap:6px 12px; padding:10px 0; border-bottom:1px solid var(--line); }
+  .row.yes { box-shadow: inset 4px 0 0 var(--yes); padding-left:10px; }
+  .row.no { box-shadow: inset 4px 0 0 var(--no); padding-left:10px; opacity:.6; }
+  .meta { color:var(--muted); font-size:12px; }
+  .text { font-size:15px; }
+  audio { width:100%; height:32px; grid-column: 1 / -1; }
+  .marks { display:flex; gap:6px; align-items:start; }
+  .marks button.on-yes { background:var(--yes); color:#fff; border-color:var(--yes); }
+  .marks button.on-no { background:var(--no); color:#fff; border-color:var(--no); }
+</style>
+</head>
+<body>
+<header>
+  <h1>挑选 __VOICE__ 锚点</h1>
+  <p class="hint">逐条试听，把<strong>确定是 __VOICE__</strong>的片段标为「是 __VOICE__」（至少 5 条，越干净越好）。明显是别人的可以标「不是」，帮助排序。标记会自动保存在本浏览器里。</p>
+  <div class="bar">
+    <input type="search" id="q" placeholder="搜索台词…">
+    <select id="ep"><option value="">全部集数</option></select>
+    <label><input type="checkbox" id="onlyMarked"> 只看已标记</label>
+    <span>已标「是 __VOICE__」：<span class="count" id="nYes">0</span></span>
+    <button class="primary" id="export">导出 anchors.json</button>
+  </div>
+</header>
+<main id="list"></main>
+<script>
+const ITEMS = __ITEMS__;
+const KEY = 'vl_anchors';
+let marks = {};
+try { marks = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { marks = {}; }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(marks)); } catch (e) {} };
+const $ = (s) => document.querySelector(s);
+const fmt = (t) => { const m = Math.floor(t / 60), s = (t % 60).toFixed(1).padStart(4, '0'); return `${m}:${s}`; };
+
+[...new Set(ITEMS.map(i => i.ep))].forEach(ep => { const o = document.createElement('option'); o.value = ep; o.textContent = ep; $('#ep').appendChild(o); });
+
+function render() {
+  const q = $('#q').value.trim(), ep = $('#ep').value, only = $('#onlyMarked').checked;
+  const list = $('#list'); list.innerHTML = '';
+  ITEMS.filter(i => (!q || (i.text || '').includes(q)) && (!ep || i.ep === ep) && (!only || i.id in marks))
+    .forEach(i => {
+      const row = document.createElement('div');
+      const m = marks[i.id];
+      row.className = 'row' + (m === 1 ? ' yes' : m === 0 ? ' no' : '');
+      row.innerHTML = `<div><div class="text"></div><div class="meta">${i.ep} · ${fmt(i.t)} · ${i.d.toFixed(1)}s · ${i.id}</div></div>
+        <div class="marks"><button data-v="1" class="${m === 1 ? 'on-yes' : ''}">是 __VOICE__</button><button data-v="0" class="${m === 0 ? 'on-no' : ''}">不是</button></div>
+        <audio controls preload="none" src="${i.src}"></audio>`;
+      row.querySelector('.text').textContent = i.text || '（无转写）';
+      row.querySelectorAll('button').forEach(b => b.onclick = () => {
+        const v = Number(b.dataset.v);
+        if (marks[i.id] === v) delete marks[i.id]; else marks[i.id] = v;
+        save(); render(); updateCount();
+      });
+      list.appendChild(row);
+    });
+}
+function updateCount() { $('#nYes').textContent = Object.values(marks).filter(v => v === 1).length; }
+$('#q').oninput = render; $('#ep').onchange = render; $('#onlyMarked').onchange = render;
+$('#export').onclick = () => {
+  const blob = new Blob([JSON.stringify(marks, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'anchors.json'; a.click();
+};
+render(); updateCount();
+</script>
+</body>
+</html>

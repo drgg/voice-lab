@@ -1,0 +1,25 @@
+﻿diff --git a/rvc/train/train.py b/rvc/train/train.py
+index 8969ac7..2aa7b10 100644
+--- a/rvc/train/train.py
++++ b/rvc/train/train.py
+@@ -338,15 +338,17 @@ def run(
+         shuffle=True,
+     )
+ 
++    # voice-lab: 4 spawned workers x prefetch 8 pushed commit past 16 GB RAM and grew the C: pagefile
++    n_workers = int(os.environ.get("RVC_NUM_WORKERS", "4"))
+     train_loader = DataLoader(
+         train_dataset,
+-        num_workers=4,
++        num_workers=n_workers,
+         shuffle=False,
+         pin_memory=True,
+         collate_fn=collate_fn,
+         batch_sampler=train_sampler,
+-        persistent_workers=True,
+-        prefetch_factor=8,
++        persistent_workers=n_workers > 0,
++        prefetch_factor=8 if n_workers > 0 else None,
+     )
+ 
+     # Validations

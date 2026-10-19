@@ -1,0 +1,36 @@
+# Only scripts/ and docs are meant to be versioned.
+# Caches, third-party repos, data, experiment outputs and model weights stay local.
+cache/
+tools/
+repos/
+data/
+exp/
+out/
+eval/
+logs/
+.venv/
+**/.venv/
+__pycache__/
+*.pyc
+
+# model weights / audio
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.bin
+*.onnx
+*.wav
+*.flac
+*.mp3
+*.wem
+*.mkv
+*.mp4
+envs/
+
+
+# release builds (release_tools/ makes them)
+release/
+
+# environment snapshots (scripts/launcher.ps1): this machine's package lists
+env-snapshots/

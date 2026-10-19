@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>回配盲听</title>
+<style>
+  :root { --bg:#fafaf9; --fg:#1c1917; --muted:#78716c; --line:#e7e5e4; --card:#fff; --accent:#2563eb; --real:#15803d; --gen:#b45309; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1c1917; --fg:#f5f5f4; --muted:#a8a29e; --line:#44403c; --card:#292524; --accent:#60a5fa; --real:#4ade80; --gen:#fbbf24; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, "Microsoft YaHei", sans-serif; }
+  header { border-bottom:1px solid var(--line); padding:12px 16px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .hint { color:var(--muted); font-size:13px; margin:0 0 8px; max-width:900px; }
+  main { padding:12px 16px 60px; max-width:980px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; margin:12px 0; }
+  .head { font-size:13px; color:var(--muted); }
+  .text { margin:2px 0 8px; font-weight:600; }
+  .opts { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .opt label.n { font-weight:700; }
+  .scale { font-size:13px; display:flex; flex-wrap:wrap; gap:2px 8px; align-items:center; margin-top:4px; }
+  .scale .name { color:var(--muted); min-width:3.5em; }
+  audio { width:100%; height:32px; }
+  .vote { display:flex; flex-wrap:wrap; gap:4px 14px; margin-top:10px; font-size:14px; align-items:center; }
+  .tag { font-weight:700; font-size:12px; } .tag.real { color:var(--real); } .tag.gen { color:var(--gen); }
+  textarea { width:100%; height:110px; font:13px/1.4 ui-monospace, monospace; background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px; }
+  button { padding:6px 12px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); cursor:pointer; }
+  #tally { font-weight:600; }
+  @media (max-width:640px) { .opts { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>回配盲听</h1>
+  <p class="hint" id="hint"></p>
+  <div class="vote"><button id="all">全部揭晓</button><span id="tally"></span></div>
+</header>
+<main>
+<div id="list"></div>
+<h2 style="font-size:16px">结果（复制给我）</h2>
+<textarea id="out" readonly></textarea>
+<button id="copy">复制</button>
+</main>
+<script>
+const D = __DATA__;
+const KEY = "vl_tts_blind_" + D.system;
+document.getElementById("hint").textContent = `每组是同一句台词：一段是${D.voice}的原声，一段是模型（${D.system}）只看文字生成的，甲乙顺序随机，音量已对齐。先选哪段是原声，再给两段各打“像${D.voice}”和“自然”的分（1 很差 … 5 和原声一样）。全部做完后点“全部揭晓”，把底部的结果复制给我。`;
+let st = {};
+try { st = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { st = {}; }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
+const names = ["甲", "乙"];
+const avg = a => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(2) : "-";
+function tally() {
+  let n = 0, right = 0, unsure = 0; const like = { real: [], gen: [] }, nat = { real: [], gen: [] };
+  D.items.forEach((it, i) => { const s = st[i] || {};
+    if (s.pick != null) { n++; if (s.pick === "?") unsure++; else if (it.opts[s.pick].kind === "real") right++; }
+    it.opts.forEach((o, j) => { if (s["like" + j]) like[o.kind].push(s["like" + j]); if (s["nat" + j]) nat[o.kind].push(s["nat" + j]); }); });
+  const shown = D.items.some((_, i) => (st[i] || {}).shown);
+  document.getElementById("tally").textContent = `已选 ${n}/${D.items.length}` + (shown ? `；认出原声 ${right}/${n - unsure}，听不出 ${unsure}` : "");
+  document.getElementById("out").value = `系统 ${D.system}：认出原声 ${right}/${n - unsure}（听不出 ${unsure}）\n` +
+    `像${D.voice}：原声 ${avg(like.real)} / 生成 ${avg(like.gen)}；自然：原声 ${avg(nat.real)} / 生成 ${avg(nat.gen)}\n` +
+    D.items.map((it, i) => { const s = st[i] || {}; const g = it.opts.findIndex(o => o.kind === "gen");
+      return `${it.key} ${s.pick == null ? "未选" : s.pick === "?" ? "听不出" : it.opts[s.pick].kind === "real" ? "认对" : "认错"} 生成 像${s["like" + g] || "-"} 自然${s["nat" + g] || "-"}`; }).join("\n");
+}
+function scale(i, j, k, label) {
+  return `<div class="scale"><span class="name">${label}</span>${[1, 2, 3, 4, 5].map(v => `<label><input type="radio" name="${k}${j}_${i}" value="${v}"${(st[i] || {})[k + j] === v ? " checked" : ""}>${v}</label>`).join("")}</div>`;
+}
+const list = document.getElementById("list");
+D.items.forEach((it, i) => {
+  const c = document.createElement("div"); c.className = "card";
+  c.innerHTML = `<div class="head">第 ${i + 1} 组 · ${it.key}</div><div class="text">${it.text}</div>
+    <div class="opts">${it.opts.map((o, j) => `<div class="opt"><label class="n">${names[j]} <span class="tag ${o.kind}" hidden>${o.kind === "real" ? "原声" : "生成"}</span></label>
+      <audio controls preload="none" src="${o.src}"></audio>${scale(i, j, "like", "像" + D.voice)}${scale(i, j, "nat", "自然")}</div>`).join("")}</div>
+    <div class="vote">原声是：<label><input type="radio" name="p${i}" value="0"> 甲</label><label><input type="radio" name="p${i}" value="1"> 乙</label>
+      <label><input type="radio" name="p${i}" value="?"> 听不出</label><button class="show">揭晓</button></div>`;
+  const s = st[i] || {};
+  c.querySelectorAll(`input[name="p${i}"]`).forEach(r => { if (String(s.pick) === r.value) r.checked = true;
+    r.onchange = () => { st[i] = Object.assign(st[i] || {}, { pick: r.value === "?" ? "?" : +r.value }); save(); tally(); }; });
+  c.querySelectorAll(".scale input").forEach(r => r.onchange = () => {
+    const [k, rest] = [r.name.slice(0, r.name.search(/\d/)), r.name.slice(r.name.search(/\d/))];
+    st[i] = Object.assign(st[i] || {}, { [k + rest.split("_")[0]]: +r.value }); save(); tally(); });
+  const reveal = () => { c.querySelectorAll(".tag").forEach(t => t.hidden = false); st[i] = Object.assign(st[i] || {}, { shown: true }); save(); tally(); };
+  c.querySelector(".show").onclick = reveal;
+  if (s.shown) c.querySelectorAll(".tag").forEach(t => t.hidden = false);
+  list.appendChild(c);
+});
+document.getElementById("all").onclick = () => document.querySelectorAll(".show").forEach(b => b.click());
+document.getElementById("copy").onclick = () => { const t = document.getElementById("out"); t.select(); try { navigator.clipboard.writeText(t.value); } catch (e) { document.execCommand("copy"); } };
+document.addEventListener("play", e => document.querySelectorAll("audio").forEach(a => { if (a !== e.target) a.pause(); }), true);
+tally();
+</script>
+</body>
+</html>

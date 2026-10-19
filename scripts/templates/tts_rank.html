@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>语气对比</title>
+<style>
+  :root { --bg:#fafaf9; --fg:#1c1917; --muted:#78716c; --line:#e7e5e4; --card:#fff; --accent:#2563eb; --ok:#15803d; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1c1917; --fg:#f5f5f4; --muted:#a8a29e; --line:#44403c; --card:#292524; --accent:#60a5fa; --ok:#4ade80; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, "Microsoft YaHei", sans-serif; }
+  header { border-bottom:1px solid var(--line); padding:12px 16px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .hint { color:var(--muted); font-size:13px; margin:0 0 8px; max-width:900px; }
+  main { padding:12px 16px 60px; max-width:980px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; margin:12px 0; }
+  .head { font-size:13px; color:var(--muted); }
+  .text { margin:2px 0 8px; font-weight:600; }
+  .opts { display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; }
+  .opts label.n { font-weight:700; font-size:13px; display:block; }
+  .ref label.n { color:var(--accent); }
+  audio { width:100%; height:32px; }
+  .vote { display:flex; flex-wrap:wrap; gap:4px 14px; margin-top:8px; font-size:14px; align-items:center; }
+  .tag { font-weight:700; font-size:12px; color:var(--ok); }
+  textarea { width:100%; height:110px; font:13px/1.4 ui-monospace, monospace; background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px; }
+  button { padding:6px 12px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); cursor:pointer; }
+  #tally { font-weight:600; }
+  @media (max-width:720px) { .opts { grid-template-columns:1fr 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">语气对比</h1>
+  <p class="hint" id="hint"></p>
+  <div class="vote"><button id="all">全部揭晓</button><span id="tally"></span></div>
+</header>
+<main>
+<div id="list"></div>
+<h2 style="font-size:16px">结果（复制给我）</h2>
+<textarea id="out" readonly></textarea>
+<button id="copy">复制</button>
+</main>
+<script>
+const D = __DATA__;
+const KEY = "vl_tts_rank_" + D.name;
+document.getElementById("hint").textContent = D.hint;
+let st = {};
+try { st = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { st = {}; }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
+const names = ["甲", "乙", "丙", "丁"];
+function tally() {
+  const best = {}, worst = {}; let n = 0, none = 0;
+  D.items.forEach((it, i) => { const s = st[i] || {};
+    if (s.best != null) { n++; if (s.best === "none") none++; else best[it.opts[s.best].label] = (best[it.opts[s.best].label] || 0) + 1; }
+    if (s.worst != null && s.worst !== "none") worst[it.opts[s.worst].label] = (worst[it.opts[s.worst].label] || 0) + 1; });
+  const shown = D.items.some((_, i) => (st[i] || {}).shown);
+  const fmt = o => D.labels.map(l => `${l} ${o[l] || 0}`).join("，");
+  document.getElementById("tally").textContent = `已选 ${n}/${D.items.length}` + (shown ? `；最好：${fmt(best)}；最差：${fmt(worst)}` : "");
+  document.getElementById("out").value = `${D.name}：已选 ${n}/${D.items.length}，都不行 ${none}\n最好：${fmt(best)}\n最差：${fmt(worst)}\n` +
+    D.items.map((it, i) => { const s = st[i] || {}; const b = s.best == null ? "未选" : s.best === "none" ? "都不行" : it.opts[s.best].label;
+      const w = s.worst == null ? "-" : s.worst === "none" ? "-" : it.opts[s.worst].label; return `${it.key} 最好 ${b} 最差 ${w}${s.note ? " 备注：" + s.note : ""}`; }).join("\n");
+}
+const list = document.getElementById("list");
+D.items.forEach((it, i) => {
+  const c = document.createElement("div"); c.className = "card";
+  const radios = (q) => it.opts.map((o, j) => `<label><input type="radio" name="${q}${i}" value="${j}"> ${names[j]}</label>`).join("");
+  c.innerHTML = `<div class="head">第 ${i + 1} 组 · ${it.key}</div><div class="text">${it.text}</div>
+    <div class="opts"><div class="ref"><label class="n">${D.voice}原声（参照）</label><audio controls preload="none" src="${it.real}"></audio></div>
+    ${it.opts.map((o, j) => `<div><label class="n">${names[j]} <span class="tag" hidden>${o.label}</span></label><audio controls preload="none" src="${o.src}"></audio></div>`).join("")}</div>
+    <div class="vote">${D.question}：${radios("b")}<label><input type="radio" name="b${i}" value="none"> 都不行</label></div>
+    <div class="vote">最差：${radios("w")}</div>
+    <div class="vote"><input type="text" placeholder="备注（可选，例如：句尾该上扬）" style="flex:1;min-width:200px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg)"><button class="show">揭晓</button></div>`;
+  const s = st[i] || {};
+  c.querySelectorAll(`input[name="b${i}"]`).forEach(r => { if (String(s.best) === r.value) r.checked = true;
+    r.onchange = () => { st[i] = Object.assign(st[i] || {}, { best: r.value === "none" ? "none" : +r.value }); save(); tally(); }; });
+  c.querySelectorAll(`input[name="w${i}"]`).forEach(r => { if (String(s.worst) === r.value) r.checked = true;
+    r.onchange = () => { st[i] = Object.assign(st[i] || {}, { worst: +r.value }); save(); tally(); }; });
+  const note = c.querySelector('input[type="text"]'); note.value = s.note || "";
+  note.oninput = () => { st[i] = Object.assign(st[i] || {}, { note: note.value }); save(); tally(); };
+  c.querySelector(".show").onclick = () => { c.querySelectorAll(".tag").forEach(t => t.hidden = false); st[i] = Object.assign(st[i] || {}, { shown: true }); save(); tally(); };
+  if (s.shown) c.querySelectorAll(".tag").forEach(t => t.hidden = false);
+  list.appendChild(c);
+});
+document.getElementById("all").onclick = () => document.querySelectorAll(".show").forEach(b => b.click());
+document.getElementById("copy").onclick = () => { const t = document.getElementById("out"); t.select(); try { navigator.clipboard.writeText(t.value); } catch (e) { document.execCommand("copy"); } };
+document.addEventListener("play", e => document.querySelectorAll("audio").forEach(a => { if (a !== e.target) a.pause(); }), true);
+tally();
+</script>
+</body>
+</html>
